@@ -1481,7 +1481,7 @@ class Sync {
             }
             lo[kind] := LoadoutMgr.Fix(opName, kind, slot)
         }
-        Cfg.FromLua(() => Sync.Record(side, opName, lo))
+        Cfg.FromLua(Sync.Record.Bind(Sync, side, opName, lo))
         ; first run: adopt the Lua's game settings ONCE as the starting values of the setup wizard
         if (!Cfg.Get("setup.done", 0) && !Cfg.Get("setup.adopted", 0)) {
             Cfg.Data["setup"]["adopted"] := 1
@@ -1495,17 +1495,17 @@ class Sync {
         }
         ; favourites: adopt the Lua's list once (first snapshot ever); afterwards only via events
         if !Cfg.Data["favInit"] && d.Has("favorites") {
-            Cfg.FromLua(() => Sync.AdoptFavorites(d["favorites"]))
+            Cfg.FromLua(Sync.AdoptFavorites.Bind(Sync, d["favorites"]))
         }
         for side3 in Db.Sides {
             luaText := d.Get("cal_" side3, "-")
-            Cfg.FromLua(() => Calib.SetSrc(side3, luaText))
+            Cfg.FromLua(Calib.SetSrc.Bind(Calib, side3, luaText))
         }
         ; grid overrides the Lua already has (e.g. calibrated in game before this script existed)
         for side2 in Db.Sides {
             key := "cal_" side2
             if (d.Has(key) && d[key] != "-" && !Cfg.Data["calibration"].Has(side2))
-                Cfg.FromLua(() => Sync.AdoptCal(side2, d[key]))
+                Cfg.FromLua(Sync.AdoptCal.Bind(Sync, side2, d[key]))
         }
     }
 
@@ -1546,7 +1546,7 @@ class Sync {
             case "favourite_changed":
                 name := e.Get("operator", "")
                 on := e.Get("on", "0") = "1"
-                Cfg.FromLua(() => Sync.SetFav(name, on))
+                Cfg.FromLua(Sync.SetFav.Bind(Sync, name, on))
                 Live.Recent_Add((on ? "★ Favourited " : "Unfavourited ") name)
             case "operator_changed":
                 Live.Recent_Add("Operator → " e.Get("operator", "?"))
@@ -3820,7 +3820,7 @@ class Calib {
         side := Db.SideFromLua(sideLabel)
         Calib.Side := side
         Calib.Active := false, Calib.Pts := [], Calib.Err := ""
-        Cfg.FromLua(() => Calib.Store(side, tlx, tly, brx, bry, "lua"))
+        Cfg.FromLua(Calib.Store.Bind(Calib, side, tlx, tly, brx, bry, "lua"))
         View.Changed()
     }
     static OnLuaFailed(sideLabel, reason) {
@@ -3830,7 +3830,7 @@ class Calib {
     }
     static OnLuaReset(sideLabel) {
         side := Db.SideFromLua(sideLabel)
-        Cfg.FromLua(() => Calib.DropCal(side))
+        Cfg.FromLua(Calib.DropCal.Bind(Calib, side))
         Calib.Err := ""
         View.Changed()
     }
