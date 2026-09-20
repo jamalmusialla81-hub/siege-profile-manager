@@ -2041,7 +2041,7 @@ class Hud {
 
         if Recorder.On {
             key := Recorder.Key()
-            rows.Push([c["rec"], "● REC  " (key != "" ? StrSplit(key, ":")[1] : "-") "  ·  " Recorder.Kept " bursts", Clr.Red, 20])
+            rows.Push([c["rec"], "● REC  " (key != "" ? StrSplit(key, ":")[1] : "-") "  ·  " Recorder.Kept " recorded", Clr.Red, 20])
         }
 
         ; --- status line ----------------------------------------------------------
@@ -3146,8 +3146,10 @@ class Center {
         c := Center.Ctl
         on := Recorder.On
         SetText(c["r_toggle"], on ? "■ STOP RECORDING" : "● RECORD MY RECOIL:  OFF")
-        SetText(c["r_state"], on ? "Recording (F6 stops).  1) Turn the system OFF: RALT + MB5   2) Spray a wall by hand, full bursts   3) After 3 bursts the profile updates itself   4) Copy the Lua script to use it."
-            : "Learns how YOU pull the mouse during a spray, per weapon and loadout. Press the button or F6, then shoot by hand with the system OFF.")
+        semi := Recorder.SemiCap() > 0
+        SetText(c["r_state"], on ? (semi ? "Recording a SEMI-AUTO weapon (F6 stops).  1) System OFF: RALT + MB5   2) Click shots one at a time at a wall and control the kick   3) After 5 shots the profile updates itself   4) Copy the Lua script."
+            : "Recording (F6 stops).  1) System OFF: RALT + MB5   2) Spray a wall by hand, full bursts   3) After 3 bursts the profile updates itself   4) Copy the Lua script.")
+            : "Learns how YOU control recoil, per weapon and loadout. Full-auto: spray bursts. Semi-auto (shotguns, DMRs, pistols): click shots one at a time. Press the button or F6, with the system OFF.")
         key := Recorder.Key()
         parts := key != "" ? StrSplit(key, ":") : []
         SetText(c["r_key"], key != "" ? parts[1] : "no weapon yet")
@@ -3155,7 +3157,7 @@ class Center {
         pk := Live.Get("recoil_profile", "")
         SetText(c["r_prof"], pk != "" ? "PROFILE IN USE:  " pk : "")
         Ui.Paint(c["r_prof"], pk = "LEARNED" ? Clr.Green : Clr.Dim)
-        SetText(c["r_cnt"], Recorder.Kept " kept   ·   " Recorder.Dropped " discarded")
+        SetText(c["r_cnt"], Recorder.Kept " recorded   ·   " Recorder.Dropped " discarded")
         SetText(c["r_last"], Recorder.Last != "" ? Recorder.Last : "no burst recorded yet")
         SetText(c["r_msg"], Recorder.Msg)
         curve := key != "" ? Recorder.Curve(key) : Map("y", [], "x", [])
@@ -3173,10 +3175,17 @@ class Center {
             SetText(c["r_c2"], axis)
         } else {
             SetText(c["r_c1"], "")
-            SetText(c["r_c2"], "Not enough data yet: record at least 3 bursts of 0.5 s or more with this exact loadout.")
+            SetText(c["r_c2"], Recorder.SemiCap() > 0 ? "Not enough data yet: click at least 5 shots with this exact loadout."
+                : "Not enough data yet: record at least 3 bursts of 0.5 s or more with this exact loadout.")
         }
         fit := key != "" ? Recorder.Fit(key) : ""
-        if IsObject(fit) {
+        if (IsObject(fit) && fit.Has("kick")) {
+            SetText(c["r_c1"], "")
+            SetText(c["r_c2"], "Semi-auto: the kick after each click is averaged.")
+            SetText(c["r_c3"], Format("kick {:.1f} per shot     →  r {:.2f}     side {:+.2f}", fit["kick"], fit["r"], fit["side"]))
+            SetText(c["r_c4"], "from " fit["n"] " shots  ·  reference units (800 dpi, 11/11), rescaled to your " Cfg.Get("game.dpi") " dpi by the Lua"
+                . (Cfg.Get("learned").Has(key) ? "  ·  saved in your config" : ""))
+        } else if IsObject(fit) {
             SetText(c["r_c3"], Format("r {:.2f}     y1 {:+.2f}     y2 {:+.2f}     side {:+.2f}", fit["r"], fit["y1"], fit["y2"], fit["side"]))
             applied := Cfg.Get("learned").Has(key)
             SetText(c["r_c4"], "fitted from " fit["n"] " bursts  ·  reference units (800 dpi, 11/11), rescaled to your " Cfg.Get("game.dpi") " dpi / " Cfg.Get("game.sensH") "-" Cfg.Get("game.sensV") " by the Lua"
@@ -4072,6 +4081,9 @@ class Recorder {
     static Freq := 0
     static Fn := ""
     static Cur := ""                ; burst being recorded: Map(t0, key, s[samples], macro)
+    static Shot := ""               ; semi-auto: the shot window being recorded: Map(t0, key, x, y, cap)
+    static ShotWin := 250           ; ms after a click that count as "the kick of that shot"
+    static TickFn := ""
     static Kept := 0
     static Dropped := 0
     static Msg := "Recorder is off"
@@ -4109,10 +4121,14 @@ class Recorder {
         }
         if !IsObject(Recorder.Fn)
             Recorder.Fn := ObjBindMethod(Recorder, "OnInput")
+        if !IsObject(Recorder.TickFn)
+            Recorder.TickFn := ObjBindMethod(Recorder, "Tick")
         OnMessage(0x00FF, Recorder.Fn, on ? 1 : 0)                ; WM_INPUT
+        SetTimer(Recorder.TickFn, on ? 120 : 0)
         Recorder.On := on
         Recorder.Cur := ""
-        Recorder.Msg := on ? "Recording. Fire full bursts by hand (system OFF: RALT + MB5)." : "Recorder is off"
+        Recorder.Shot := ""
+        Recorder.Msg := on ? "Recording. Shoot by hand (system OFF: RALT + MB5)." : "Recorder is off"
         Toast.Show(on ? "ok" : "info", on ? "● RECORDING MY RECOIL" : "RECORDER OFF", on ? "Turn the system OFF, then spray by hand" : "", "", "")
         View.Changed()
     }
@@ -4146,6 +4162,12 @@ class Recorder {
             Recorder.Down(now)
         if (IsObject(Recorder.Cur) && (dx || dy))
             Recorder.Cur["s"].Push([now - Recorder.Cur["t0"], dx, dy])
+        if IsObject(Recorder.Shot) {                          ; semi-auto: sum the movement after the click
+            if (now - Recorder.Shot["t0"] <= Recorder.ShotWin)
+                Recorder.Shot["x"] += dx, Recorder.Shot["y"] += dy
+            else
+                Recorder.EndShot()
+        }
         if (bf & 2)                                           ; RI_MOUSE_LEFT_BUTTON_UP
             Recorder.Up(now)
     }
@@ -4159,13 +4181,32 @@ class Recorder {
         return w ":" (b = "-" ? "nil" : b) ":" (g = "-" ? "nil" : g)
     }
 
+    ; Rate-of-fire cap (rpm) the LUA reports for the active weapon when it is semi-auto (0 = not semi-auto).
+    static SemiCap() {
+        cap := Live.Get("rapid_cap", "-")
+        return IsNumber(cap) ? cap + 0 : 0
+    }
+
     static Down(now) {
-        if (!Recorder.On || IsObject(Recorder.Cur) || !Live.Fresh())
+        if (!Recorder.On || !Live.Fresh())
             return
         if !(SlotSync.Anywhere || SlotSync.SiegeActive())
             return                                            ; only record while Siege is the active window
         key := Recorder.Key()
         if (key = "")
+            return
+        cap := Recorder.SemiCap()
+        if (cap > 0) {                                        ; semi-auto: every click is one shot
+            if IsObject(Recorder.Shot)
+                Recorder.EndShot()
+            if Live.Burst["active"] {
+                Recorder.Drop("discarded: the macro was moving the mouse (turn the system OFF to record)")
+                return
+            }
+            Recorder.Shot := Map("t0", now, "key", key, "x", 0, "y", 0, "cap", cap)
+            return
+        }
+        if IsObject(Recorder.Cur)
             return
         Recorder.Cur := Map("t0", now, "key", key, "s", [], "macro", Live.Burst["active"] ? 1 : 0)
     }
@@ -4185,6 +4226,66 @@ class Recorder {
             return
         }
         Recorder.Add(b["key"], b["s"], dur)
+    }
+
+    ; 120 ms timer: closes a shot window that nothing followed.
+    static Tick() {
+        if (IsObject(Recorder.Shot) && Recorder.Now() - Recorder.Shot["t0"] > Recorder.ShotWin)
+            Recorder.EndShot()
+    }
+
+    static EndShot() {
+        sh := Recorder.Shot
+        Recorder.Shot := ""
+        if IsObject(sh)
+            Recorder.AddShot(sh["key"], sh["y"], sh["x"], sh["cap"])
+    }
+
+    ; Adds the kick of one shot (your mouse movement in the ShotWin after the click) to this loadout's data.
+    static AddShot(key, dy, dx, cap) {
+        store := Cfg.Data["learnData"]
+        if !store.Has(key)
+            store[key] := Map("n", 0, "y", [], "x", [], "c", [], "t", "")
+        r := store[key]
+        if !r.Has("shots")
+            r["shots"] := 0, r["sy"] := 0, r["sx"] := 0
+        r["shots"] += 1
+        r["sy"] += dy
+        r["sx"] += dx
+        r["cap"] := cap
+        r["t"] := A_Now
+        Recorder.Kept++
+        Recorder.Last := key "  ·  shot " r["shots"] "  ·  pulled " dy " counts down after the click"
+        Recorder.Msg := r["shots"] " shot(s) recorded"
+        Cfg.Dirty()
+        fit := Recorder.FitShots(key)
+        if IsObject(fit) {
+            Cfg.Data["learned"][key] := fit
+            Cfg.Dirty()
+            if (r["shots"] = 5 || Mod(r["shots"], 10) = 0)
+                Toast.Show("ok", "✓ RECOIL PROFILE UPDATED", key, r["shots"] " shots recorded", "Copy the Lua script to use it")
+        }
+        View.Changed()
+    }
+
+    ; Semi-auto fit. Mean pull per shot (reference units) becomes the Lua's continuous pull per 7 ms tick:
+    ;   r = kick * rpm / 60 * 0.007       (the same relation the built-in estimates use)
+    static FitShots(key) {
+        store := Cfg.Data["learnData"]
+        if !store.Has(key)
+            return ""
+        r := store[key]
+        if (!r.Has("shots") || r["shots"] < 5 || !r.Has("cap") || r["cap"] <= 0)
+            return ""
+        g := Cfg.Data["game"]
+        sy := (Recorder.RefDpi * Recorder.RefV) / (g["dpi"] * g["sensV"])
+        sx := (Recorder.RefDpi * Recorder.RefH) / (g["dpi"] * g["sensH"])
+        kick := r["sy"] / r["shots"] / sy                     ; counts per shot, reference units
+        kickX := r["sx"] / r["shots"] / sx
+        per := r["cap"] / 60 * 0.007                          ; shots per 7 ms tick at the weapon's rate of fire
+        return Map("r", Round(Clamp(kick * per, 0, 80), 3), "y1", 0, "y2", 0, "tym1", 500, "tym2", 900
+            , "side", Round(Clamp(kickX * per, -20, 20), 3), "strength", 1, "late", 1, "n", r["shots"], "t", A_Now
+            , "kick", Round(kick, 1))
     }
 
     static Drop(msg) {
@@ -4245,6 +4346,8 @@ class Recorder {
         if !store.Has(key)
             return ""
         r := store[key]
+        if (r.Has("shots") && r["shots"] >= 5 && r["n"] < 3)
+            return Recorder.FitShots(key)                     ; semi-auto weapon: per-shot data
         if (r["n"] < 3)
             return ""
         curve := Recorder.Curve(key)
