@@ -1885,6 +1885,12 @@ class Hud {
         c["cal"] := Ui.Txt(g, 16, 120, pw - 28, f(18), "", f(8.5), "Norm", Clr.Mute, Clr.Panel)
         c["dbg"] := Ui.Txt(g, 16, 138, pw - 28, f(18), "", f(8), "Norm", Clr.Mute, Clr.Panel)
         c["status"] := Ui.Txt(g, 16, 160, pw - 28, f(22), "", f(9.5), "Bold", Clr.Green, Clr.Panel)
+        ; recoil tuning panel (only while the Lua's tune mode is on)
+        c["t1"] := Ui.Txt(g, 16, 160, pw - 28, f(20), "", f(9.5), "Bold", Clr.Amber, Clr.Panel)
+        c["t2"] := Ui.Txt(g, 16, 160, pw - 28, f(40), "", f(9.5), "Bold", Clr.Text, Clr.Panel)
+        c["t3"] := Ui.Txt(g, 16, 160, pw - 28, f(36), "", f(8.5), "Norm", Clr.Dim, Clr.Panel)
+        c["t2"].Opt("-0x200 -0x4000")            ; several lines: no vertical centring / ellipsis
+        c["t3"].Opt("-0x200 -0x4000")
         Hud.Gui := g
         Hud.Ctl := c
         Hud.PW := pw
@@ -1937,6 +1943,13 @@ class Hud {
         if (sec["debug"] && hasData)
             rows.Push([c["dbg"], "#" Live.Seq "  " SubStr(Live.Session, 1, 6) "  " Live.AgeMs() " ms", sub, 18])
 
+        ; --- recoil tuning panel: which button does what, without looking away ------
+        if (hasData && Live.Get("tune", "0") = "1") {
+            rows.Push([c["t1"], "TUNING " Live.Get("tune_step", "") "   " Live.Get("tune_name", "") " = " Live.Get("tune_val", ""), Clr.Amber, 20])
+            rows.Push([c["t2"], StrReplace(Live.Get("tune_ask", ""), "    ", "`n"), Clr.Text, 40])
+            rows.Push([c["t3"], Live.Get("tune_next", "") "`n" Live.Get("tune_reset", ""), sub, 36])
+        }
+
         ; --- status line ----------------------------------------------------------
         statusText := "", statusCol := Clr.Green
         if (sec["connection"] || !hasData || st != "CONNECTED" && st != "IDLE") {
@@ -1961,7 +1974,7 @@ class Hud {
             rows.Push([c["status"], statusText, statusCol, 22])
 
         ; --- layout ---------------------------------------------------------------
-        for n in ["op", "weapon", "scope", "att", "cal", "dbg", "status"]
+        for n in ["op", "weapon", "scope", "att", "cal", "dbg", "status", "t1", "t2", "t3"]
             c[n].Visible := false
         y := 30
         pw := Hud.PW
@@ -3622,6 +3635,11 @@ class Profiles {
         if (p != "-" && RegExMatch(p, '^\["(.+?)"\]', &m))
             Profiles.Pastes[m[1]] := p
         tuning := pkt.Get("tune", "0") = "1"
+        if (tuning && !Profiles.WasTuning && (View.Hidden || View.Mode != "hud")) {
+            View.Hidden := false                ; tuning started: bring the HUD up so the button hints are visible
+            View.Mode := "hud"
+            View.Apply()
+        }
         if (Profiles.WasTuning && !tuning)
             Profiles.Copy()                     ; tuning just finished
         Profiles.WasTuning := tuning
