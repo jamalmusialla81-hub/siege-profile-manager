@@ -196,6 +196,9 @@ local CONFIG = {
     -- Hold time and gap are random inside these ranges (ms) so it is not a fixed metronome.
     rapidFire = {
         enabled = true,
+        -- A semi-auto weapon that is missing from the built-in list (section 5c)? Add its id here:
+        --   extraSemi = { ["SOME GUN"] = 450 }     (value = its fire-rate cap in rpm)
+        extraSemi = {},
         downMs  = { 26, 40 },   -- long enough that a frame at 60 fps or lower still sees every click
         upMs    = { 30, 60 },
     },
@@ -1215,12 +1218,14 @@ local WEAPON_RECOIL = {
     { "9MM C1", 575, 65 },     { "SPSMG9", 980, 65 },     { "SMG-12", 1270, 50 },
     { "SMG-11", 1270, 45 },    { "BEARING 9", 1100, 55 },  { "C75 AUTO", 1000, 90 },
     -- full-auto shotguns
-    { "FO-12", 400, 250 },     { "ACS12", 300, 240 },
-    -- DMRs (semi)
+    { "FO-12", 400, 250 },
+    -- DMRs / snipers (semi; bolt-action counts as semi: one shot per click)
+    { "OTS-03", 380, 190, "semi" },  { "CSRX 300", 50, 300, "semi" },
     { "417", 430, 210, "semi" },     { "SR-25", 440, 210, "semi" },
     { "MK 14 EBR", 440, 210, "semi" }, { "CAMRS", 420, 200, "semi" },
     { "AR-15.50", 430, 190, "semi" },
     -- semi-auto / pump shotguns
+    { "ACS12", 300, 240, "semi" },  -- slug shotgun, same class as the TCSG12
     { "SASG-12", 340, 250, "semi" },  { "TCSG12", 490, 260, "semi" },
     { "M1014", 215, 270, "semi" },    { "SPAS-15", 300, 260, "semi" },
     { "SG-CQB", 85, 270, "semi" },   { "SIX12", 220, 250, "semi" },
@@ -1269,6 +1274,9 @@ local function BuildEstimatedProfiles()
     end
 end
 BuildEstimatedProfiles()
+for id, cap in pairs(CONFIG.rapidFire.extraSemi or {}) do
+    SEMI_AUTO[id] = (type(cap) == "number" and cap > 0) and cap or 400
+end
 
 -- The three simple tune knobs. Every profile may carry them; missing = default.
 --   strength  multiplies the whole vertical pull
