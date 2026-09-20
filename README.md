@@ -11,11 +11,14 @@ calibration wizard, first-run setup, diagnostics and a versioned Lua protocol
 (`SPMSTATE` / `SPMEVENT` / `SPMBEAT`). Settings reach the Lua through a generated `SPM_USER` block
 (Settings > COPY FULL LUA SCRIPT + MY CONFIG copies your whole Lua with your config merged in: select all in the G HUB script, paste, save).
 
-### Recoil recorder (V2.1)
-F6 (or Home > RECORD MY RECOIL) records how *you* pull the mouse during a spray (Windows Raw Input, no screen or
-memory reading). Turn the system OFF (`RALT+MB5`), spray a wall by hand, and after 3 bursts a profile for that
-exact weapon + barrel + grip is fitted and saved. Copy the full Lua script to use it. Bursts where the macro was
-moving the mouse are discarded automatically.
+### Recoil coach (V2.4)
+The system checks its own compensation and improves it. While the macro pulls, your hand is the error
+sensor: if you have to pull down extra, the macro is too weak at that moment; if you push up, too strong.
+The AHK reads your real mouse movement (Windows Raw Input; no screen or memory reading), the Lua reports
+what it injected and which profile it ran, and per burst the coach scores accuracy, measures the error in
+three phases of the spray, and after 3 bursts proposes a better profile (bounded to 0.6x-1.5x of the first
+one it saw). Press F6 to turn it on, run the one-time HANDS-OFF TEST, then just play and copy the Lua
+script now and then to load the improved profile.
 
 ## Files
 

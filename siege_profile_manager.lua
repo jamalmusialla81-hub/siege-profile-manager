@@ -147,8 +147,8 @@ local CONFIG = {
             ["3440x1440"] = {   -- attackers: measured with RSHIFT+MB4 calibration; defenders: estimate
                 attackers = { padding = { x = 0.003, y = 0.006 },
                               topLeft = { x = 0.1399, y = 0.2689 }, bottomRight = { x = 0.4225, y = 0.8881 } },
-                defenders = { padding = { x = 0.003, y = 0.006 },
-                              topLeft = { x = 0.214, y = 0.183 }, bottomRight = { x = 0.817, y = 0.782 } },
+                defenders = { padding = { x = 0.003, y = 0.006 },      -- same selector layout as attackers
+                              topLeft = { x = 0.1399, y = 0.2689 }, bottomRight = { x = 0.4225, y = 0.8881 } },
             },
         },
     },
@@ -1535,11 +1535,18 @@ local function GetGridSpec(side)
         side = side, columns = def.columns, rows = def.rows, layout = def.layout,
         padding = geo.padding, topLeft = geo.topLeft, bottomRight = geo.bottomRight,
     }
+    -- Attackers and defenders use the same selector layout, so a side that has not been calibrated
+    -- on its own inherits the other side's calibration instead of falling back to a rough preset.
+    local other = (side == "attackers") and "defenders" or "attackers"
     local override = State.calibration.override[side]
+    local shared = false
+    if not override and State.calibration.override[other] then
+        override, shared = State.calibration.override[other], true
+    end
     if override then
         spec.topLeft, spec.bottomRight = override.topLeft, override.bottomRight
         spec.padding = override.padding or geo.padding
-        label = "CALIBRATED"
+        label = shared and ("CALIBRATED (shared with " .. SIDE_LABEL[other] .. ")") or "CALIBRATED"
     end
     return spec, label
 end
@@ -2294,13 +2301,26 @@ local function ExportState()
         elseif pk == RecoilKey(slot) then profileKind = "TUNED"
         else profileKind = "BUILT-IN" end
     end
+    local pullA, pullB, pullC, pullX, pullT1, pullT2, pullKey = "-", "-", "-", "-", "-", "-", "-"
+    if pf then
+        local att = 1
+        if pk ~= RecoilKey(slot) and CONFIG.recoil.attMult then
+            att = ((CONFIG.recoil.attMult.grip or {})[slot.grip] or 1) * ((CONFIG.recoil.attMult.barrel or {})[slot.barrel] or 1)
+        end
+        local stg, late = (pf.strength or 1) * att, pf.late or 1
+        pullA = string.format("%.3f", pf.r * stg)
+        pullB = string.format("%.3f", (pf.r + pf.y1 * late) * stg)
+        pullC = string.format("%.3f", (pf.r + pf.y1 * late + pf.y2 * late) * stg)
+        pullX = string.format("%.3f", pf.side or 0)
+        pullT1, pullT2, pullKey = pf.tym1, pf.tym2, pk
+    end
     local favCount = 0
     for _ in pairs(State.favorites) do favCount = favCount + 1 end
     local cal = State.calibration
     local calText
     if cal.active then
         calText = string.format("ACTIVE %d/2 (%s)", #cal.points + 1, SIDE_LABEL[cal.side or State.side])
-    elseif cal.override[State.side] then
+    elseif cal.override[State.side] or cal.override[(State.side == "attackers") and "defenders" or "attackers"] then
         calText = "CALIBRATED"
     else
         calText = "PRESET " .. tostring(gridLabel)
@@ -2365,6 +2385,9 @@ local function ExportState()
         { "recoil_cfg", CONFIG.recoil.enabled and 1 or 0 },
         { "recoil_profile", profileKind },
         { "recoil_gain", string.format("%.2f", CONFIG.recoil.gain or 1) },
+        { "pull_key", pullKey },        -- the profile that is running: effective pull per 7 ms tick (ref units)
+        { "pull_a", pullA }, { "pull_b", pullB }, { "pull_c", pullC }, { "pull_x", pullX },
+        { "pull_t1", pullT1 }, { "pull_t2", pullT2 },
         { "recoil_secondary", CONFIG.recoil.secondary and 1 or 0 },
         { "m_jitter", (jc.enabled and (jc.amount or 1) > 0) and "ENABLED" or "DISABLED" },
         { "jitter_amount", string.format("%.2f", jc.amount or 1) },
@@ -2884,7 +2907,7 @@ local function RunRecoil()
             -- proof for the overlay/console that the macro really fired, and how much it pulled
             State.spray = { ms = GetRunningTime() - start, n = ticks, x = sumX, y = sumY, c = clicks }
             State.diag.clicks = State.diag.clicks + clicks
-            Emit("burst_end", "ms", State.spray.ms, "ticks", ticks, "clicks", clicks)
+            Emit("burst_end", "ms", State.spray.ms, "ticks", ticks, "clicks", clicks, "py", sumY, "px", sumX)
             Render()
         else
             Sleep(1)

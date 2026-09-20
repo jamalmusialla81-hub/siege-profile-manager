@@ -607,6 +607,7 @@ class Cfg {
             , "sections", Cfg.DefaultSections())
         d["hotkeys"] := Map("mode", "F8", "visible", "F9", "capture", "F7", "profiles", "F10", "record", "F6")
         d["setup"] := Map("done", 0)
+        d["coach"] := Map("mode", "", "on", 0, "hist", Map())
         d["sync"] := Map("baseline", "", "copiedRev", "")
         d["lua"] := Map("path", "")
         return d
@@ -788,7 +789,7 @@ class Cfg {
         d := Cfg.Defaults()
         out := Map()
         out["version"] := App.CfgVersion
-        for sec in ["game", "prefs", "state", "ui", "hotkeys", "setup", "sync", "lua"] {
+        for sec in ["game", "prefs", "state", "ui", "hotkeys", "setup", "sync", "lua", "coach"] {
             m := d[sec]
             src := (data.Has(sec) && Type(data[sec]) = "Map") ? data[sec] : Map()
             for k, v in src
@@ -823,6 +824,12 @@ class Cfg {
                 out["hotkeys"][k] := v
         out["state"]["side"] := IndexOf(Db.Sides, out["state"]["side"]) ? out["state"]["side"] : "attackers"
         out["setup"]["done"] := out["setup"]["done"] ? 1 : 0
+        cm := out["coach"]
+        if !IndexOf(["", "phys", "direct", "subtract"], cm["mode"])
+            cm["mode"] := ""
+        cm["on"] := cm["on"] ? 1 : 0
+        if (Type(cm["hist"]) != "Map")
+            cm["hist"] := Map()
 
         Cfg.Data := out          ; prefs are needed by LoadoutMgr.Fix below
         out["favorites"] := []
@@ -1580,8 +1587,11 @@ class Sync {
             case "detect_result":
                 Calib.OnLuaDetect(e)
             case "burst_start":
-                if IsObject(Recorder.Cur)
-                    Recorder.Cur["macro"] := 1               ; the macro is moving the mouse: this recording is not "manual"
+                Coach.OnLuaStart()
+                if IsObject(Recorder.Cur) {
+                    Recorder.Cur["macro"] := 1               ; the macro is moving the mouse during this burst
+                    Recorder.Cur["recoil"] := e.Get("recoil", "0") = "1" ? 1 : 0
+                }
                 b := Live.Burst
                 b["active"] := 1, b["t"] := A_TickCount, b["weapon"] := e.Get("weapon", "")
                 b["recoil"] := e.Get("recoil", "0") = "1" ? 1 : 0
@@ -1590,6 +1600,7 @@ class Sync {
                 b := Live.Burst
                 b["active"] := 0, b["lastT"] := A_TickCount
                 b["last"] := Round(e.Get("ms", 0) / 1000, 1) " s, " e.Get("ticks", 0) " ticks, " e.Get("clicks", 0) " clicks"
+                Coach.OnLuaEnd(e)
         }
     }
 
@@ -2114,7 +2125,8 @@ class Hud {
 
         if Recorder.On {
             key := Recorder.Key()
-            rows.Push([c["rec"], "● REC  " (key != "" ? StrSplit(key, ":")[1] : "-") "  ·  " Recorder.Kept " recorded", Clr.Red, 20])
+            r := Coach.Result
+            rows.Push([c["rec"], "● COACH  " (key != "" ? StrSplit(key, ":")[1] : "-") (IsObject(r) ? "  ·  " Round(r["acc"]) "%" : ""), Clr.Accent, 20])
         }
 
         ; --- status line ----------------------------------------------------------
@@ -3196,117 +3208,123 @@ class Center {
 
 
     ; ==========================================================================
-    ; RECOIL  (records how YOU control recoil and turns it into a per-weapon profile)
+    ; RECOIL  (the coach: the system checks its own compensation and improves it)
     ; ==========================================================================
     static BuildRecoil(g) {
         add := Center.Reg.Bind(Center, "RECOIL")
         c := Center.Ctl
-        c["r_toggle"] := add(Ui.Btn(g, 196, 76, 250, 46, "● RECORD MY RECOIL:  OFF", () => Recorder.Toggle(), "p"))
-        c["r_state"] := add(Ui.Txt(g, 462, 76, 498, 46, "", 10, "Norm", Clr.Dim))
-        c["r_state"].Opt("-0x200 -0x4000")
-        Center.Card(add, g, 196, 136, 372, 112, "WEAPON BEING RECORDED")
-        c["r_key"] := add(Ui.Txt(g, 210, 162, 344, 30, "", 15, "Bold", Clr.Text, Clr.Panel))
-        c["r_key2"] := add(Ui.Txt(g, 210, 194, 344, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["r_prof"] := add(Ui.Txt(g, 210, 216, 344, 20, "", 9, "Bold", Clr.Dim, Clr.Panel))
-        Center.Card(add, g, 584, 136, 376, 112, "THIS SESSION")
-        c["r_cnt"] := add(Ui.Txt(g, 598, 162, 348, 26, "", 13, "Bold", Clr.Text, Clr.Panel))
-        c["r_last"] := add(Ui.Txt(g, 598, 190, 348, 20, "", 8, "Norm", Clr.Dim, Clr.Panel))
-        c["r_msg"] := add(Ui.Txt(g, 598, 212, 348, 30, "", 8, "Norm", Clr.Mute, Clr.Panel))
-        c["r_msg"].Opt("-0x200 -0x4000")
-        Center.Card(add, g, 196, 262, 764, 138, "YOUR PULL OVER THE SPRAY  (average of the recorded bursts)")
-        c["r_c1"] := add(Ui.Mono(g, 212, 294, 732, 24, "", 14, Clr.Accent, Clr.Panel))
-        c["r_c2"] := add(Ui.Mono(g, 212, 320, 732, 18, "", 8, Clr.Mute, Clr.Panel))
-        c["r_c3"] := add(Ui.Txt(g, 212, 346, 732, 22, "", 11, "Bold", Clr.Text, Clr.Panel))
-        c["r_c4"] := add(Ui.Txt(g, 212, 370, 732, 20, "", 8, "Norm", Clr.Dim, Clr.Panel))
-        add(Ui.Btn(g, 196, 412, 200, 34, "USE THIS PROFILE NOW", () => Center.RecApply(), "p"))
-        add(Ui.Btn(g, 404, 412, 200, 34, "COPY LUA SCRIPT", () => Center.CopyBlock()))
-        add(Ui.Btn(g, 612, 412, 250, 34, "FORGET THIS WEAPON'S DATA", () => Center.RecForget(), "d"))
-        add(Ui.Txt(g, 196, 458, 300, 16, "LEARNED PROFILES", 8, "Bold", Clr.Mute))
-        c["r_list"] := add(Ui.List(g, 196, 476, 764, 148, ["Loadout", "Bursts", "r", "y1", "y2", "side", "Updated"]))
-        for i, w in [300, 70, 70, 70, 70, 70, 114]
+        c["r_toggle"] := add(Ui.Btn(g, 196, 76, 230, 46, "● COACH: OFF", () => Recorder.Toggle(), "p"))
+        add(Ui.Btn(g, 436, 76, 200, 46, "HANDS-OFF TEST", () => Coach.StartTest()))
+        c["r_mode"] := add(Ui.Txt(g, 650, 76, 310, 46, "", 9, "Norm", Clr.Dim))
+        c["r_mode"].Opt("-0x200 -0x4000")
+        Center.Card(add, g, 196, 136, 374, 136, "SYSTEM CHECK")
+        c["r_k1"] := add(Ui.Txt(g, 210, 162, 346, 20, "", 9, "Bold", Clr.Text, Clr.Panel))
+        c["r_k2"] := add(Ui.Txt(g, 210, 184, 346, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        c["r_k3"] := add(Ui.Txt(g, 210, 206, 346, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        c["r_k4"] := add(Ui.Txt(g, 210, 228, 346, 38, "", 8, "Norm", Clr.Mute, Clr.Panel))
+        c["r_k4"].Opt("-0x200 -0x4000")
+        Center.Card(add, g, 586, 136, 374, 136, "ACCURACY")
+        c["r_acc"] := add(Ui.Txt(g, 600, 160, 150, 54, "", 30, "Bold", Clr.Accent, Clr.Panel, "", "Segoe UI Black"))
+        c["r_a2"] := add(Ui.Txt(g, 760, 166, 190, 44, "", 8, "Norm", Clr.Dim, Clr.Panel))
+        c["r_a2"].Opt("-0x200 -0x4000")
+        c["r_spark"] := add(Ui.Mono(g, 600, 222, 346, 22, "", 13, Clr.Accent, Clr.Panel))
+        c["r_a3"] := add(Ui.Txt(g, 600, 246, 346, 18, "", 8, "Norm", Clr.Mute, Clr.Panel))
+        Center.Card(add, g, 196, 286, 764, 148, "WHAT THE COACH SEES IN YOUR LAST BURST")
+        for i, n in ["r_p1", "r_p2", "r_p3", "r_p4"]
+            c[n] := add(Ui.Txt(g, 210, 312 + (i - 1) * 26, 736, 24, "", 10, "Bold", Clr.Dim, Clr.Panel))
+        c["r_prop"] := add(Ui.Txt(g, 210, 414, 736, 18, "", 8, "Norm", Clr.Mute, Clr.Panel))
+        add(Ui.Btn(g, 196, 446, 210, 34, "COPY LUA SCRIPT", () => Center.CopyBlock(), "p"))
+        add(Ui.Btn(g, 414, 446, 210, 34, "FORGET THIS WEAPON", () => Center.CoachForget(), "d"))
+        add(Ui.Txt(g, 196, 490, 400, 16, "PROFILES THE COACH HAS BUILT", 8, "Bold", Clr.Mute))
+        c["r_list"] := add(Ui.List(g, 196, 508, 764, 116, ["Loadout", "Bursts", "Accuracy", "r", "y1", "y2", "Updated"]))
+        for i, w in [300, 70, 90, 70, 70, 70, 94]
             c["r_list"].ModifyCol(i, Ui.S(w))
     }
 
     static RefreshRec() {
         c := Center.Ctl
         on := Recorder.On
-        SetText(c["r_toggle"], on ? "■ STOP RECORDING" : "● RECORD MY RECOIL:  OFF")
-        semi := Recorder.SemiCap() > 0
-        SetText(c["r_state"], on ? (semi ? "Recording a SEMI-AUTO weapon (F6 stops).  1) System OFF: RALT + MB5   2) Click shots one at a time at a wall and control the kick   3) After 5 shots the profile updates itself   4) Copy the Lua script."
-            : "Recording (F6 stops).  1) System OFF: RALT + MB5   2) Spray a wall by hand, full bursts   3) After 3 bursts the profile updates itself   4) Copy the Lua script.")
-            : "Learns how YOU control recoil, per weapon and loadout. Full-auto: spray bursts. Semi-auto (shotguns, DMRs, pistols): click shots one at a time. Press the button or F6, with the system OFF.")
+        SetText(c["r_toggle"], on ? "■ COACH: ON  (F6)" : "● COACH: OFF  (F6)")
+        mode := Coach.Mode()
+        SetText(c["r_mode"], Coach.Msg)
         key := Recorder.Key()
         parts := key != "" ? StrSplit(key, ":") : []
-        SetText(c["r_key"], key != "" ? parts[1] : "no weapon yet")
-        SetText(c["r_key2"], key != "" ? parts[2] "  ·  " parts[3] "  ·  " StrUpper(Live.Slot()) : "")
+        ; --- system check ---
+        SetText(c["r_k1"], "Mouse link:   " (mode = "" ? "⚠ not tested yet - press HANDS-OFF TEST" : mode = "phys" ? "✓ macro on a separate device"
+            : mode = "subtract" ? "✓ macro shares your mouse channel (handled)" : "✓ macro invisible to Raw Input"))
+        Ui.Paint(c["r_k1"], mode = "" ? Clr.Amber : Clr.Green)
         pk := Live.Get("recoil_profile", "")
-        SetText(c["r_prof"], pk != "" ? "PROFILE IN USE:  " pk : "")
-        Ui.Paint(c["r_prof"], pk = "LEARNED" ? Clr.Green : Clr.Dim)
-        SetText(c["r_cnt"], Recorder.Kept " recorded   ·   " Recorder.Dropped " discarded")
-        SetText(c["r_last"], Recorder.Last != "" ? Recorder.Last : "no burst recorded yet")
-        SetText(c["r_msg"], Recorder.Msg)
-        curve := key != "" ? Recorder.Curve(key) : Map("y", [], "x", [])
-        ys := curve["y"]
-        if (ys.Length) {
-            mx := 0
-            for v in ys
-                mx := Max(mx, v)
-            bars := "▁▂▃▄▅▆▇█", line := "", axis := ""
-            for i, v in ys {
-                line .= SubStr(bars, mx > 0 ? Clamp(Round(Max(v, 0) / mx * 7) + 1, 1, 8) : 1, 1)
-                axis .= (Mod(i, 5) = 0 ? Format("{:-5s}", Round(i / 10, 1) "s") : "")
+        SetText(c["r_k2"], "Weapon:   " (key != "" ? parts[1] "  ·  " parts[2] "  ·  " parts[3] : "-") "      Profile: " (pk != "" ? pk : "-"))
+        r := Coach.Result
+        SetText(c["r_k3"], IsObject(r) ? "Last burst:   " Round(r["dur"] / 1000, 1) " s   ·   macro pulled " Round(r["py"]) " counts" : "Last burst:   none scored yet")
+        SetText(c["r_k4"], on ? "Skipped so far: " Coach.Skipped "   ·   Bursts scored: " (Coach.Seen - Coach.Skipped)
+            : "Turn the coach on and just play. Every spray with the macro is scored against how much you had to correct.")
+        ; --- accuracy ---
+        hist := key != "" ? Coach.History(key, 30) : []
+        if (hist.Length) {
+            last10 := 0, cnt := 0
+            loop Min(10, hist.Length) {
+                last10 += hist[hist.Length - A_Index + 1], cnt++
             }
-            SetText(c["r_c1"], line)
-            SetText(c["r_c2"], axis)
+            best := 0
+            for v in hist
+                best := Max(best, v)
+            bars := "▁▂▃▄▅▆▇█", line := ""
+            for v in hist
+                line .= SubStr(bars, Clamp(Round(v / 100 * 7) + 1, 1, 8), 1)
+            SetText(c["r_acc"], Round(hist[hist.Length]) "%")
+            SetText(c["r_a2"], "last 10 avg " Round(last10 / cnt) "%`nbest " best "%   ·   " hist.Length " bursts")
+            SetText(c["r_spark"], line)
+            first := hist.Length >= 6 ? Round(Coach.Avg(hist, 1, 3)) : 0
+            SetText(c["r_a3"], hist.Length >= 6 ? "started at " first "%  ->  now " Round(Coach.Avg(hist, hist.Length - 2, hist.Length)) "%" : "keep shooting: the trend appears after 6 bursts")
         } else {
-            SetText(c["r_c1"], "")
-            SetText(c["r_c2"], Recorder.SemiCap() > 0 ? "Not enough data yet: click at least 5 shots with this exact loadout."
-                : "Not enough data yet: record at least 3 bursts of 0.5 s or more with this exact loadout.")
+            SetText(c["r_acc"], "--")
+            SetText(c["r_a2"], "no scored bursts for this weapon yet")
+            SetText(c["r_spark"], "")
+            SetText(c["r_a3"], "")
         }
-        fit := key != "" ? Recorder.Fit(key) : ""
-        if (IsObject(fit) && fit.Has("kick")) {
-            SetText(c["r_c1"], "")
-            SetText(c["r_c2"], "Semi-auto: the kick after each click is averaged.")
-            SetText(c["r_c3"], Format("kick {:.1f} per shot     →  r {:.2f}     side {:+.2f}", fit["kick"], fit["r"], fit["side"]))
-            SetText(c["r_c4"], "from " fit["n"] " shots  ·  reference units (800 dpi, 11/11), rescaled to your " Cfg.Get("game.dpi") " dpi by the Lua"
-                . (Cfg.Get("learned").Has(key) ? "  ·  saved in your config" : ""))
-        } else if IsObject(fit) {
-            SetText(c["r_c3"], Format("r {:.2f}     y1 {:+.2f}     y2 {:+.2f}     side {:+.2f}", fit["r"], fit["y1"], fit["y2"], fit["side"]))
-            applied := Cfg.Get("learned").Has(key)
-            SetText(c["r_c4"], "fitted from " fit["n"] " bursts  ·  reference units (800 dpi, 11/11), rescaled to your " Cfg.Get("game.dpi") " dpi / " Cfg.Get("game.sensH") "-" Cfg.Get("game.sensV") " by the Lua"
-                . (applied ? "  ·  saved in your config" : ""))
+        ; --- what the coach sees ---
+        if IsObject(r) {
+            for i, ph in [["EARLY  (to 0.5 s)", "mA", "pa"], ["MID    (0.5 - 0.9 s)", "mB", "pb"], ["LATE   (0.9 s +)", "mC", "pc"]] {
+                say := Coach.Say(r[ph[2]], r[ph[3]])
+                SetText(c["r_p" i], ph[1] "     macro " say)
+                Ui.Paint(c["r_p" i], say = "on target" ? Clr.Green : Clr.Amber)
+            }
+            SetText(c["r_p4"], "SIDEWAYS     " (Abs(r["mX"]) < 0.08 ? "no drift" : "you pull " (r["mX"] > 0 ? "right" : "left") " by " Round(Abs(r["mX"]), 2)))
+            Ui.Paint(c["r_p4"], Abs(r["mX"]) < 0.08 ? Clr.Green : Clr.Amber)
         } else {
-            SetText(c["r_c3"], "")
-            SetText(c["r_c4"], "")
+            for n in ["r_p1", "r_p2", "r_p3", "r_p4"]
+                SetText(c[n], "")
+            SetText(c["r_p1"], "Waiting for a burst with the macro pulling...")
         }
+        ; --- proposal status ---
+        e := key != "" && Cfg.Data["coach"]["hist"].Has(key) ? Cfg.Data["coach"]["hist"][key] : ""
+        if IsObject(e) {
+            saved := Cfg.Get("learned").Has(key)
+            SetText(c["r_prop"], "This round: " e["n"] " burst(s)" (e["n"] < 3 ? " (needs 3 to propose an improvement)" : saved ? "  ·  improved profile saved: copy the Lua script to use it" : ""))
+        } else
+            SetText(c["r_prop"], "")
         lv := c["r_list"]
         lv.Delete()
-        for k, p in Cfg.Get("learned")
-            lv.Add("", k, p["n"], Round(p["r"], 2), Format("{:+.2f}", p["y1"]), Format("{:+.2f}", p["y2"]), Format("{:+.2f}", p["side"])
-                , p["t"] != "" ? FormatTime(p["t"], "MM-dd HH:mm") : "")
-    }
-
-    static RecApply() {
-        key := Recorder.Key()
-        fit := key != "" ? Recorder.Fit(key) : ""
-        if !IsObject(fit) {
-            Toast.Show("warn", "⚠ NOT ENOUGH DATA", "Record at least 3 bursts (0.5 s+) first", "", "")
-            return
+        for k, e2 in Cfg.Data["coach"]["hist"] {
+            if (Type(e2) != "Map" || !e2.Has("acc"))
+                continue
+            p := Cfg.Get("learned").Has(k) ? Cfg.Get("learned")[k] : ""
+            a := e2["acc"]
+            lv.Add("", k, a.Length, a.Length ? Round(a[a.Length]) "%" : "-", IsObject(p) ? Round(p["r"], 2) : "-"
+                , IsObject(p) ? Format("{:+.2f}", p["y1"]) : "-", IsObject(p) ? Format("{:+.2f}", p["y2"]) : "-"
+                , e2["t"] != "" ? FormatTime(e2["t"], "MM-dd HH:mm") : "")
         }
-        Cfg.Data["learned"][key] := fit
-        Cfg.Dirty()
-        Toast.Show("ok", "✓ PROFILE SAVED", key, "Copy the Lua script to use it", "")
-        View.Changed()
     }
 
-    static RecForget() {
+    static CoachForget() {
         key := Recorder.Key()
         if (key = "")
             return
-        if (MsgBox("Forget everything recorded for " key "?", "Recoil recorder", "YesNo Icon?") != "Yes")
+        if (MsgBox("Forget everything the coach learned for " key "?", "Recoil coach", "YesNo Icon?") != "Yes")
             return
-        Recorder.ForgetKey(key)
-        Toast.Show("info", "RECORDING DATA CLEARED", key, "", "")
+        Coach.ForgetKey(key)
+        Toast.Show("info", "COACH DATA CLEARED", key, "", "")
         View.Changed()
     }
 
@@ -3701,10 +3719,16 @@ class Calib {
     static HasCal(side) => Cfg.Get("calibration").Has(side)
 
     ; Map(tlx, tly, brx, bry, padx, pady): the calibrated grid, else the preset for the resolution.
+    static Other(side) => side = "attackers" ? "defenders" : "attackers"
+
+    ; Attackers and defenders share one selector layout, so an uncalibrated side uses the other side's grid
+    ; (exactly what the Lua does).
+    static Shared(side) => (!Calib.HasCal(side) && Calib.HasCal(Calib.Other(side)))
+
     static Geometry(side) {
         pre := Db.Presets.Has(Calib.PresetName() "|" side) ? Db.Presets[Calib.PresetName() "|" side] : Db.Presets["1920x1080|" side]
         g := Map("padx", pre["padx"], "pady", pre["pady"])
-        src := Calib.HasCal(side) ? Cfg.Get("calibration")[side] : pre
+        src := Calib.HasCal(side) ? Cfg.Get("calibration")[side] : Calib.Shared(side) ? Cfg.Get("calibration")[Calib.Other(side)] : pre
         for k in ["tlx", "tly", "brx", "bry"]
             g[k] := src[k]
         return g
@@ -3715,19 +3739,22 @@ class Calib {
             return "CALIBRATING"
         if (Calib.Err != "" && Calib.Side = side)
             return "ERROR"
-        return Calib.HasCal(side) ? "CALIBRATED" : "NOT CALIBRATED (PRESET)"
+        if Calib.HasCal(side)
+            return "CALIBRATED"
+        return Calib.Shared(side) ? "CALIBRATED (SHARED)" : "NOT CALIBRATED (PRESET)"
     }
     static Short(side) {
         s := Calib.Status(side)
-        return s = "CALIBRATED" ? "✓" : s = "CALIBRATING" ? "…" : s = "ERROR" ? "✗" : "⚠"
+        return InStr(s, "CALIBRATED") && !InStr(s, "NOT") ? "✓" : s = "CALIBRATING" ? "…" : s = "ERROR" ? "✗" : "⚠"
     }
     static Long(side) {
         s := Calib.Status(side)
-        return s = "CALIBRATED" ? "✓ CALIBRATED" : s = "CALIBRATING" ? "… CALIBRATING" : s = "ERROR" ? "✗ ERROR" : "⚠ PRESET"
+        return s = "CALIBRATED" ? "✓ CALIBRATED" : s = "CALIBRATED (SHARED)" ? "✓ SHARED WITH " Db.SideLabel(Calib.Other(side))
+            : s = "CALIBRATING" ? "… CALIBRATING" : s = "ERROR" ? "✗ ERROR" : "⚠ PRESET"
     }
     static Color(side) {
         s := Calib.Status(side)
-        return s = "CALIBRATED" ? Clr.Green : s = "ERROR" ? Clr.Red : Clr.Amber
+        return (InStr(s, "CALIBRATED") && !InStr(s, "NOT")) ? Clr.Green : s = "ERROR" ? Clr.Red : Clr.Amber
     }
     static Mode() => "corner calibration"
 
@@ -4004,7 +4031,7 @@ class Hk {
     ]
     static AhkDefaults := Map("mode", "F8", "visible", "F9", "capture", "F7", "profiles", "F10", "record", "F6")
     static AhkLabels := Map("mode", "Compact HUD / Control centre", "visible", "Show / hide everything"
-        , "capture", "Capture calibration point", "profiles", "Copy tuned recoil profiles", "record", "Record my recoil on / off")
+        , "capture", "Capture calibration point", "profiles", "Copy tuned recoil profiles", "record", "Recoil coach on / off")
     static AhkGroups := Map("mode", "HUD", "visible", "HUD", "capture", "CALIBRATION", "profiles", "SYSTEM", "record", "RECOIL")
     static Fn := Map()
 
@@ -4149,15 +4176,15 @@ class Profiles {
 }
 
 ; ------------------------------------------------------------------------------
-; 18b. RECOIL RECORDER  (learns YOUR manual recoil control)
-;   Reads raw mouse movement (Windows Raw Input, the same data mouse software sees) while you hold
-;   fire. It cannot see the game's own recoil - that would need screen or memory reading, which
-;   this project does not do. Instead it records how YOU pull the mouse down over the spray, averages
-;   several bursts, and fits the Lua's profile shape:  pull per 7 ms tick = r, then +y1 after tym1,
-;   +y2 after tym2, plus a sideways drift `side`. All numbers are stored in the Lua's REFERENCE units
-;   (800 dpi, sens 11/11) so the Lua rescales them to your dpi / sensitivity at runtime.
-;   A recording is only kept when the Lua reports that its macro was NOT moving the mouse (system
-;   OFF, or no profile) - otherwise the macro's own pull would be recorded and learned back.
+; 18b. RECOIL COACH  (the system checks its own compensation and improves it)
+;   While the macro is pulling, your hand is the error sensor: if you have to pull down extra, the
+;   macro is under-compensating at that moment; if you push up, it is over-compensating. Windows Raw
+;   Input (the same data mouse software sees) gives this app your real mouse movement. The Lua reports
+;   what it injected (burst_end: py / px) and which profile it ran (pull_a / pull_b / pull_c). Per burst
+;   the coach measures your residual correction in three phases of the spray, scores the burst, and
+;   nudges the profile a fraction of the way toward zero error. Nothing here reads the screen or the game.
+;   It only adjusts a profile (never more than 40% away from the first one it saw). The new profile
+;   reaches the game with the next COPY LUA SCRIPT.
 ; ------------------------------------------------------------------------------
 class Recorder {
     static On := false
@@ -4165,19 +4192,9 @@ class Recorder {
     static Buf := ""
     static Freq := 0
     static Fn := ""
-    static Cur := ""                ; burst being recorded: Map(t0, key, s[samples], macro)
-    static Shot := ""               ; semi-auto: the shot window being recorded: Map(t0, key, x, y, cap)
-    static ShotWin := 250           ; ms after a click that count as "the kick of that shot"
     static TickFn := ""
-    static Kept := 0
-    static Dropped := 0
-    static Msg := "Recorder is off"
-    static Last := ""
-    static BucketMs := 100
-    static MaxB := 80
-    static RefDpi := 800
-    static RefH := 11
-    static RefV := 11
+    static Cur := ""                ; the burst being captured: Map(t0, key, s[samples], macro, recoil, pa, pb, pc, px, t1, t2, gain)
+    static Dev := Map()             ; device handle -> movement seen while NOT firing (= your physical mouse)
     static Hdr := 8 + 2 * A_PtrSize          ; sizeof(RAWINPUTHEADER)
 
     static Init() {
@@ -4194,27 +4211,28 @@ class Recorder {
 
     static Toggle() => Recorder.Set(!Recorder.On)
 
-    static Set(on) {
+    static Set(on, quiet := false) {
         on := on ? true : false
         if (on = Recorder.On)
             return
         if !IsObject(Recorder.Gui)
             Recorder.Init()
         if !Recorder.Reg(on) {
-            Toast.Show("error", "⚠ RECORDER", "Windows refused the raw-input registration", "", "")
+            Toast.Show("error", "⚠ COACH", "Windows refused the raw-input registration", "", "")
             return
         }
         if !IsObject(Recorder.Fn)
             Recorder.Fn := ObjBindMethod(Recorder, "OnInput")
         if !IsObject(Recorder.TickFn)
-            Recorder.TickFn := ObjBindMethod(Recorder, "Tick")
+            Recorder.TickFn := ObjBindMethod(Coach, "Tick")
         OnMessage(0x00FF, Recorder.Fn, on ? 1 : 0)                ; WM_INPUT
-        SetTimer(Recorder.TickFn, on ? 120 : 0)
+        SetTimer(Recorder.TickFn, on ? 250 : 0)
         Recorder.On := on
         Recorder.Cur := ""
-        Recorder.Shot := ""
-        Recorder.Msg := on ? "Recording. Shoot by hand (system OFF: RALT + MB5)." : "Recorder is off"
-        Toast.Show(on ? "ok" : "info", on ? "● RECORDING MY RECOIL" : "RECORDER OFF", on ? "Turn the system OFF, then spray by hand" : "", "", "")
+        Cfg.Set("coach.on", on ? 1 : 0)
+        Coach.Msg := on ? "Watching your bursts" : "Coach is off"
+        if !quiet
+            Toast.Show(on ? "ok" : "info", on ? "● COACH ON" : "COACH OFF", on ? "Just play: it learns from every spray" : "", "", "")
         View.Changed()
     }
 
@@ -4228,30 +4246,29 @@ class Recorder {
         return DllCall("RegisterRawInputDevices", "Ptr", b, "UInt", 1, "UInt", 8 + A_PtrSize, "Int")
     }
 
-    ; WM_INPUT handler: keep it small, it runs up to 1000 times a second.
+    ; WM_INPUT handler: small on purpose, it can run 1000 times a second.
     static OnInput(wParam, lParam, msg, hwnd) {
         size := 64
         n := DllCall("GetRawInputData", "Ptr", lParam, "UInt", 0x10000003, "Ptr", Recorder.Buf, "UInt*", &size, "UInt", Recorder.Hdr, "UInt")
         if (n = 0 || n = 0xFFFFFFFF)
             return
-        if (NumGet(Recorder.Buf, 0, "UInt") != 0)                  ; RIM_TYPEMOUSE only
+        if (NumGet(Recorder.Buf, 0, "UInt") != 0)             ; RIM_TYPEMOUSE only
             return
         h := Recorder.Hdr
-        if (NumGet(Recorder.Buf, h, "UShort") & 1)                 ; absolute pointer device: ignore
+        if (NumGet(Recorder.Buf, h, "UShort") & 1)            ; absolute pointer device: ignore
             return
-        bf := NumGet(Recorder.Buf, h + 4, "UShort")                ; RAWMOUSE.usButtonFlags
+        hd := NumGet(Recorder.Buf, 8, "Ptr")                  ; RAWINPUTHEADER.hDevice
+        bf := NumGet(Recorder.Buf, h + 4, "UShort")           ; RAWMOUSE.usButtonFlags
         dx := NumGet(Recorder.Buf, h + 12, "Int")
         dy := NumGet(Recorder.Buf, h + 16, "Int")
         now := Recorder.Now()
         if (bf & 1)                                           ; RI_MOUSE_LEFT_BUTTON_DOWN
             Recorder.Down(now)
-        if (IsObject(Recorder.Cur) && (dx || dy))
-            Recorder.Cur["s"].Push([now - Recorder.Cur["t0"], dx, dy])
-        if IsObject(Recorder.Shot) {                          ; semi-auto: sum the movement after the click
-            if (now - Recorder.Shot["t0"] <= Recorder.ShotWin)
-                Recorder.Shot["x"] += dx, Recorder.Shot["y"] += dy
-            else
-                Recorder.EndShot()
+        if (dx || dy) {
+            if IsObject(Recorder.Cur)
+                Recorder.Cur["s"].Push([now - Recorder.Cur["t0"], dx, dy, hd])
+            else if !Live.Burst["active"]
+                Recorder.Dev[hd] := Recorder.Dev.Get(hd, 0) + Abs(dx) + Abs(dy)
         }
         if (bf & 2)                                           ; RI_MOUSE_LEFT_BUTTON_UP
             Recorder.Up(now)
@@ -4266,34 +4283,19 @@ class Recorder {
         return w ":" (b = "-" ? "nil" : b) ":" (g = "-" ? "nil" : g)
     }
 
-    ; Rate-of-fire cap (rpm) the LUA reports for the active weapon when it is semi-auto (0 = not semi-auto).
-    static SemiCap() {
-        cap := Live.Get("rapid_cap", "-")
-        return IsNumber(cap) ? cap + 0 : 0
-    }
-
     static Down(now) {
-        if (!Recorder.On || !Live.Fresh())
+        if (!Recorder.On || IsObject(Recorder.Cur) || !Live.Fresh())
             return
         if !(SlotSync.Anywhere || SlotSync.SiegeActive())
-            return                                            ; only record while Siege is the active window
+            return                                            ; only while Siege is the active window
         key := Recorder.Key()
         if (key = "")
             return
-        cap := Recorder.SemiCap()
-        if (cap > 0) {                                        ; semi-auto: every click is one shot
-            if IsObject(Recorder.Shot)
-                Recorder.EndShot()
-            if Live.Burst["active"] {
-                Recorder.Drop("discarded: the macro was moving the mouse (turn the system OFF to record)")
-                return
-            }
-            Recorder.Shot := Map("t0", now, "key", key, "x", 0, "y", 0, "cap", cap)
-            return
-        }
-        if IsObject(Recorder.Cur)
-            return
-        Recorder.Cur := Map("t0", now, "key", key, "s", [], "macro", Live.Burst["active"] ? 1 : 0)
+        ; snapshot of the profile the Lua is about to run (from its last state packet)
+        Recorder.Cur := Map("t0", now, "key", key, "s", [], "macro", Live.Burst["active"] ? 1 : 0, "recoil", 0
+            , "pa", Live.Get("pull_a", "-"), "pb", Live.Get("pull_b", "-"), "pc", Live.Get("pull_c", "-")
+            , "px", Live.Get("pull_x", "-"), "t1", Live.Get("pull_t1", "-"), "t2", Live.Get("pull_t2", "-")
+            , "pk", Live.Get("pull_key", "-"), "gain", Live.Get("recoil_gain", "1"))
     }
 
     static Up(now) {
@@ -4301,192 +4303,309 @@ class Recorder {
             return
         b := Recorder.Cur
         Recorder.Cur := ""
-        dur := now - b["t0"]
-        if (b["macro"] || Live.Burst["active"]) {
-            Recorder.Drop("discarded: the macro was moving the mouse (turn the system OFF to record)")
+        b["dur"] := now - b["t0"]
+        Coach.OnRaw(b)
+    }
+}
+
+class Coach {
+    static Raw := ""                ; finished capture of the last burst, waiting for the Lua's totals
+    static End := ""                ; the Lua's burst_end totals
+    static TestOn := false
+    static Msg := "Coach is off"
+    static Result := ""             ; the last analysed burst
+    static Seen := 0
+    static Skipped := 0
+    static Eta := 0.5               ; fraction of the measured error corrected per proposal
+    static RefDpi := 800
+    static RefH := 11
+    static RefV := 11
+
+    static Mode() => Cfg.Get("coach.mode", "")
+
+    ; ---- pairing the raw capture with the Lua's report of the same burst ---------------------
+    static OnRaw(b) {
+        if (!b["macro"] || !b["recoil"]) {
+            Coach.Skip("that burst had no macro pull (ADS + fire with the system ON)")
             return
         }
-        if (dur < 500) {
-            Recorder.Drop("discarded: too short (" Round(dur) " ms) - hold fire at least 0.5 s")
-            return
-        }
-        Recorder.Add(b["key"], b["s"], dur)
+        b["got"] := A_TickCount
+        Coach.Raw := b
+        Coach.TryPair()
     }
 
-    ; 120 ms timer: closes a shot window that nothing followed.
+    static OnLuaStart() {
+        Coach.End := ""
+    }
+
+    static OnLuaEnd(e) {
+        Coach.End := Map("py", Float(e.Get("py", 0)), "px", Float(e.Get("px", 0)), "ms", Float(e.Get("ms", 0))
+            , "ticks", Integer(e.Get("ticks", 0)), "t", A_TickCount)
+        Coach.TryPair()
+    }
+
+    static TryPair() {
+        if (IsObject(Coach.Raw) && IsObject(Coach.End))
+            Coach.Analyze()
+    }
+
+    ; 250 ms timer: drop half-finished pairs
     static Tick() {
-        if (IsObject(Recorder.Shot) && Recorder.Now() - Recorder.Shot["t0"] > Recorder.ShotWin)
-            Recorder.EndShot()
+        if (IsObject(Coach.Raw) && A_TickCount - Coach.Raw["got"] > 2500)
+            Coach.Raw := ""
+        if (IsObject(Coach.End) && A_TickCount - Coach.End["t"] > 2500)
+            Coach.End := ""
     }
 
-    static EndShot() {
-        sh := Recorder.Shot
-        Recorder.Shot := ""
-        if IsObject(sh)
-            Recorder.AddShot(sh["key"], sh["y"], sh["x"], sh["cap"])
-    }
-
-    ; Adds the kick of one shot (your mouse movement in the ShotWin after the click) to this loadout's data.
-    static AddShot(key, dy, dx, cap) {
-        store := Cfg.Data["learnData"]
-        if !store.Has(key)
-            store[key] := Map("n", 0, "y", [], "x", [], "c", [], "t", "")
-        r := store[key]
-        if !r.Has("shots")
-            r["shots"] := 0, r["sy"] := 0, r["sx"] := 0
-        r["shots"] += 1
-        r["sy"] += dy
-        r["sx"] += dx
-        r["cap"] := cap
-        r["t"] := A_Now
-        Recorder.Kept++
-        Recorder.Last := key "  ·  shot " r["shots"] "  ·  pulled " dy " counts down after the click"
-        Recorder.Msg := r["shots"] " shot(s) recorded"
-        Cfg.Dirty()
-        fit := Recorder.FitShots(key)
-        if IsObject(fit) {
-            Cfg.Data["learned"][key] := fit
-            Cfg.Dirty()
-            if (r["shots"] = 5 || Mod(r["shots"], 10) = 0)
-                Toast.Show("ok", "✓ RECOIL PROFILE UPDATED", key, r["shots"] " shots recorded", "Copy the Lua script to use it")
-        }
+    static Skip(msg) {
+        Coach.Skipped++
+        Coach.Msg := "skipped: " msg
         View.Changed()
     }
 
-    ; Semi-auto fit. Mean pull per shot (reference units) becomes the Lua's continuous pull per 7 ms tick:
-    ;   r = kick * rpm / 60 * 0.007       (the same relation the built-in estimates use)
-    static FitShots(key) {
-        store := Cfg.Data["learnData"]
-        if !store.Has(key)
-            return ""
-        r := store[key]
-        if (!r.Has("shots") || r["shots"] < 5 || !r.Has("cap") || r["cap"] <= 0)
-            return ""
-        g := Cfg.Data["game"]
-        sy := (Recorder.RefDpi * Recorder.RefV) / (g["dpi"] * g["sensV"])
-        sx := (Recorder.RefDpi * Recorder.RefH) / (g["dpi"] * g["sensH"])
-        kick := r["sy"] / r["shots"] / sy                     ; counts per shot, reference units
-        kickX := r["sx"] / r["shots"] / sx
-        per := r["cap"] / 60 * 0.007                          ; shots per 7 ms tick at the weapon's rate of fire
-        return Map("r", Round(Clamp(kick * per, 0, 80), 3), "y1", 0, "y2", 0, "tym1", 500, "tym2", 900
-            , "side", Round(Clamp(kickX * per, -20, 20), 3), "strength", 1, "late", 1, "n", r["shots"], "t", A_Now
-            , "kick", Round(kick, 1))
+    ; ---- the analysis ------------------------------------------------------------------------
+    static PhysSet() {
+        m := Map()
+        for hd, n in Recorder.Dev
+            if (n >= 300)
+                m[hd] := 1
+        return m
     }
 
-    static Drop(msg) {
-        Recorder.Dropped++
-        Recorder.Msg := msg
-        View.Changed()
-    }
-
-    ; Adds one burst to the aggregated data of this loadout and refits the profile.
-    static Add(key, samples, dur) {
-        bm := Recorder.BucketMs
-        nb := Min(Recorder.MaxB, Floor(dur / bm))                   ; whole buckets only
-        if (nb < 4) {
-            Recorder.Drop("discarded: too short")
+    static Analyze() {
+        raw := Coach.Raw, fin := Coach.End
+        Coach.Raw := "", Coach.End := ""
+        Coach.Seen++
+        if (fin["py"] <= 0 || fin["ticks"] < 40) {
+            Coach.Skip("the macro did not pull (aim down sights, hold fire 0.5 s or more)")
             return
         }
-        sy := [], sx := []
+        nb := Min(80, Floor(raw["dur"] / 100))
+        if (nb < 5) {
+            Coach.Skip("burst too short (" Round(raw["dur"]) " ms)")
+            return
+        }
+        if !(IsNumber(raw["pa"]) && IsNumber(raw["pb"]) && IsNumber(raw["pc"])) {
+            Coach.Skip("the Lua did not report a profile for this weapon")
+            return
+        }
+        phys := Coach.PhysSet()
+        ya := [], yp := [], xa := [], xp := []
         loop nb
-            sy.Push(0), sx.Push(0)
-        for smp in samples {
-            i := Floor(smp[1] / bm) + 1
-            if (i <= nb)
-                sx[i] += smp[2], sy[i] += smp[3]
+            ya.Push(0), yp.Push(0), xa.Push(0), xp.Push(0)
+        for smp in raw["s"] {
+            i := Floor(smp[1] / 100) + 1
+            if (i > nb)
+                continue
+            ya[i] += smp[3], xa[i] += smp[2]
+            if phys.Has(smp[4])
+                yp[i] += smp[3], xp[i] += smp[2]
         }
-        store := Cfg.Data["learnData"]
-        if !store.Has(key)
-            store[key] := Map("n", 0, "y", [], "x", [], "c", [], "t", "")
-        r := store[key]
-        loop nb {
-            if (r["y"].Length < A_Index)
-                r["y"].Push(0), r["x"].Push(0), r["c"].Push(0)
-            r["y"][A_Index] += sy[A_Index]
-            r["x"][A_Index] += sx[A_Index]
-            r["c"][A_Index] += 1
+        if Coach.TestOn {
+            Coach.Classify(ya, yp, fin["py"], phys.Count)
+            return
         }
-        r["n"] += 1
-        r["t"] := A_Now
-        Recorder.Kept++
-        total := 0
-        for v in sy
-            total += v
-        Recorder.Last := key "  ·  " Round(dur / 1000, 1) " s  ·  pulled " total " counts down"
-        Recorder.Msg := "burst " r["n"] " recorded"
-        Cfg.Dirty()
-        fit := Recorder.Fit(key)
-        if IsObject(fit) {
-            Cfg.Data["learned"][key] := fit
-            Cfg.Dirty()
-            if (r["n"] = 3 || Mod(r["n"], 5) = 0)
-                Toast.Show("ok", "✓ RECOIL PROFILE UPDATED", key, r["n"] " bursts recorded", "Copy the Lua script to use it")
+        mode := Coach.Mode()
+        if (mode = "") {
+            Coach.Skip("run the HANDS-OFF TEST once so the coach knows how your mouse is seen")
+            return
+        }
+        Coach.Score(raw, fin, nb, mode, ya, yp, xa, xp)
+    }
+
+    ; One-time test (hands off the mouse while the macro pulls): how does the macro's own movement
+    ; look to Raw Input? This decides how the user's correction is separated from it.
+    static Classify(ya, yp, py, physCount) {
+        Coach.TestOn := false
+        if (physCount = 0) {
+            Coach.Msg := "TEST FAILED: wiggle the mouse first so it can be recognised, then try again"
+            View.Changed()
+            return
+        }
+        totalAll := 0, totalP := 0
+        for v in ya
+            totalAll += v
+        for v in yp
+            totalP += v
+        foreign := totalAll - totalP
+        mode := ""
+        if (Abs(foreign) >= 0.5 * py)
+            mode := "phys"
+        else if (Abs(totalP) >= 0.5 * py && Abs(totalP) <= 1.8 * py)
+            mode := "subtract"
+        else if (Abs(totalAll) < 0.25 * py)
+            mode := "direct"
+        if (mode = "") {
+            Coach.Msg := "TEST UNCLEAR (did the mouse move?). Hands completely off, try again."
+        } else {
+            Cfg.Set("coach.mode", mode)
+            Coach.Msg := "TEST OK: " (mode = "phys" ? "the macro shows up as a separate device" : mode = "subtract"
+                ? "the macro shares your mouse's channel (its pull is subtracted)" : "the macro is invisible to Raw Input")
+            Toast.Show("ok", "✓ COACH READY", "Mouse test passed", "It now learns from every spray", "")
         }
         View.Changed()
     }
 
-    ; Averages the recorded bursts of one loadout and fits the Lua profile. Returns a Map or "".
-    static Fit(key) {
-        store := Cfg.Data["learnData"]
-        if !store.Has(key)
-            return ""
-        r := store[key]
-        if (r.Has("shots") && r["shots"] >= 5 && r["n"] < 3)
-            return Recorder.FitShots(key)                     ; semi-auto weapon: per-shot data
-        if (r["n"] < 3)
-            return ""
-        curve := Recorder.Curve(key)
-        ys := curve["y"], xs := curve["x"]
-        if (ys.Length < 4)
-            return ""
-        ; bucket 1 (0-100 ms) is your reaction time and is skipped:
-        ;   buckets 2-5 (100-500 ms) -> r,  6-9 (500-900 ms) -> r + y1,  10+ (900 ms+) -> r + y1 + y2
-        a := Recorder.Mean(ys, 2, 5)
-        b := ys.Length >= 9 ? Recorder.Mean(ys, 6, 9) : a
-        c := ys.Length >= 12 ? Recorder.Mean(ys, 10, ys.Length) : b
-        side := Recorder.Mean(xs, 2, xs.Length)
-        return Map("r", Round(Clamp(a, 0, 80), 3), "y1", Round(Clamp(b - a, -40, 40), 3), "y2", Round(Clamp(c - b, -40, 40), 3)
-            , "tym1", 500, "tym2", 900, "side", Round(Clamp(side, -20, 20), 3), "strength", 1, "late", 1
-            , "n", r["n"], "t", A_Now)
+    ; Per-phase residual (reference units per 7 ms tick): + means you had to pull DOWN extra (macro too weak).
+    static Score(raw, fin, nb, mode, ya, yp, xa, xp) {
+        g := Cfg.Data["game"]
+        gain := IsNumber(raw["gain"]) ? raw["gain"] + 0 : 1
+        sy := gain * (Coach.RefDpi * Coach.RefV) / (g["dpi"] * g["sensV"])
+        sx := gain * (Coach.RefDpi * Coach.RefH) / (g["dpi"] * g["sensH"])
+        pa := raw["pa"] + 0, pb := raw["pb"] + 0, pc := raw["pc"] + 0, pxs := IsNumber(raw["px"]) ? raw["px"] + 0 : 0
+        t1 := IsNumber(raw["t1"]) ? raw["t1"] + 0 : 500
+        t2 := IsNumber(raw["t2"]) ? raw["t2"] + 0 : 900
+        ; expected pull weight per bucket (for the "subtract" mode)
+        sumW := 0
+        w := []
+        loop nb {
+            tc := (A_Index - 0.5) * 100
+            v := tc < t1 ? pa : tc < t2 ? pb : pc
+            w.Push(v), sumW += v
+        }
+        sA := 0, sB := 0, sC := 0, nA := 0, nB := 0, nC := 0, sX := 0, nX := 0
+        loop nb {
+            i := A_Index
+            if (i = 1)
+                continue                                      ; 0-100 ms is reaction time
+            if (mode = "phys")
+                yr := yp[i], xr := xp[i]
+            else if (mode = "direct")
+                yr := ya[i], xr := xa[i]
+            else {                                            ; subtract: remove what the macro itself injected
+                yr := yp[i] - (sumW > 0 ? fin["py"] * w[i] / sumW : 0)
+                xr := xp[i] - fin["px"] / nb
+            }
+            ry := yr * 0.07 / sy
+            rx := xr * 0.07 / sx
+            tc := (i - 0.5) * 100
+            if (tc < t1)
+                sA += ry, nA++
+            else if (tc < t2)
+                sB += ry, nB++
+            else
+                sC += ry, nC++
+            sX += rx, nX++
+        }
+        mA := nA ? sA / nA : 0, mB := nB ? sB / nB : 0, mC := nC ? sC / nC : 0, mX := nX ? sX / nX : 0
+        n := nA + nB + nC
+        err := (Abs(mA) * nA + Abs(mB) * nB + Abs(mC) * nC) / Max(n, 1)
+        meanPull := (pa * nA + pb * nB + pc * nC) / Max(n, 1)
+        acc := 100 * (1 - Min(1, err / Max(meanPull, 0.5) * 2))
+        Coach.Result := Map("key", raw["key"], "acc", acc, "mA", mA, "mB", mB, "mC", mC, "mX", mX, "pa", pa, "pb", pb, "pc", pc
+            , "nA", nA, "nB", nB, "nC", nC, "dur", raw["dur"], "py", fin["py"], "t", A_Now)
+        Coach.Record(raw["key"], pa, pb, pc, pxs, t1, t2, mA, mB, mC, mX, acc)
+        Coach.Msg := "burst scored: " Round(acc) "% accurate"
+        View.Changed()
     }
 
-    ; Mean pull per 7 ms tick for every 100 ms bucket, in the Lua's reference units (only buckets
-    ; that at least 3 bursts reached). Returns Map(y, x).
-    static Curve(key) {
-        out := Map("y", [], "x", [])
-        store := Cfg.Data["learnData"]
-        if !store.Has(key)
-            return out
-        r := store[key]
-        g := Cfg.Data["game"]
-        sy := (Recorder.RefDpi * Recorder.RefV) / (g["dpi"] * g["sensV"])       ; the Lua multiplies profiles by these
-        sx := (Recorder.RefDpi * Recorder.RefH) / (g["dpi"] * g["sensH"])
-        per := 7 / Recorder.BucketMs
-        loop r["y"].Length {
-            n := r["c"][A_Index]
-            if (n < 3)
-                break
-            out["y"].Push(r["y"][A_Index] / n * per / sy)
-            out["x"].Push(r["x"][A_Index] / n * per / sx)
+    ; ---- storage + proposal --------------------------------------------------------------------
+    static Entry(key) {
+        H := Cfg.Data["coach"]["hist"]
+        if (!H.Has(key) || Type(H[key]) != "Map")
+            H[key] := Map()
+        e := H[key]
+        for k, v in Map("sig", "", "n", 0, "A", 0, "B", 0, "C", 0, "X", 0, "pa", 0, "pb", 0, "pc", 0, "px", 0, "t1", 500, "t2", 900, "t", "")
+            if !e.Has(k)
+                e[k] := v
+        if (!e.Has("acc") || Type(e["acc"]) != "Array")
+            e["acc"] := []
+        return e
+    }
+
+    static Record(key, pa, pb, pc, px, t1, t2, mA, mB, mC, mX, acc) {
+        e := Coach.Entry(key)
+        sig := key "|" Round(pa, 2) "|" Round(pb, 2) "|" Round(pc, 2) "|" Round(px, 2)
+        if (e["sig"] != sig) {                                ; the game loaded a new profile: start a fresh round
+            e["sig"] := sig, e["n"] := 0, e["A"] := 0, e["B"] := 0, e["C"] := 0, e["X"] := 0
+            e["pa"] := pa, e["pb"] := pb, e["pc"] := pc, e["px"] := px, e["t1"] := t1, e["t2"] := t2
         }
+        if !e.Has("base") || !IsObject(e["base"])
+            e["base"] := Map("a", pa, "b", pb, "c", pc, "x", px)     ; the first profile ever seen bounds all later changes
+        e["n"] += 1
+        e["A"] += mA, e["B"] += mB, e["C"] += mC, e["X"] += mX
+        e["t"] := A_Now
+        e["acc"].Push(Round(acc))
+        while (e["acc"].Length > 60)
+            e["acc"].RemoveAt(1)
+        Cfg.Dirty()
+        if (e["n"] >= 3)
+            Coach.Propose(key)
+    }
+
+    static Bound(v, base) {
+        lo := base > 0.3 ? base * 0.6 : 0
+        hi := base > 0.3 ? base * 1.5 : 6
+        return Clamp(v, lo, hi)
+    }
+
+    ; New profile = the running one + Eta * the average error of the bursts run on it. Returns the Map or "".
+    static Propose(key) {
+        e := Coach.Entry(key)
+        n := e["n"]
+        if (n < 3 || !IsObject(e["base"]))
+            return ""
+        b := e["base"]
+        a2 := Coach.Bound(e["pa"] + Coach.Eta * e["A"] / n, b["a"])
+        b2 := Coach.Bound(e["pb"] + Coach.Eta * e["B"] / n, b["b"])
+        c2 := Coach.Bound(e["pc"] + Coach.Eta * e["C"] / n, b["c"])
+        x2 := Clamp(e["px"] + Coach.Eta * e["X"] / n, b["x"] - 4, b["x"] + 4)
+        prof := Map("r", Round(a2, 3), "y1", Round(b2 - a2, 3), "y2", Round(c2 - b2, 3), "tym1", e["t1"], "tym2", e["t2"]
+            , "side", Round(x2, 3), "strength", 1, "late", 1, "n", n, "t", A_Now)
+        old := Cfg.Data["learned"].Has(key) ? Cfg.Data["learned"][key] : ""
+        changed := !IsObject(old) || Abs(old["r"] - prof["r"]) > 0.03 || Abs(old["y1"] - prof["y1"]) > 0.03 || Abs(old["y2"] - prof["y2"]) > 0.03
+        if changed {
+            Cfg.Data["learned"][key] := prof
+            Cfg.Dirty()
+            Toast.Show("ok", "✓ COACH IMPROVED YOUR PROFILE", key, "From " n " bursts", "Copy the Lua script to use it")
+        }
+        return prof
+    }
+
+    static ForgetKey(key) {
+        Cfg.Data["coach"]["hist"].Delete(key)
+        Cfg.Data["learned"].Delete(key)
+        Cfg.Dirty()
+    }
+
+    ; accuracy history (last N) of a loadout
+    static History(key, n := 30) {
+        H := Cfg.Data["coach"]["hist"]
+        out := []
+        if (!H.Has(key) || Type(H[key]) != "Map" || !H[key].Has("acc"))
+            return out
+        a := H[key]["acc"]
+        start := Max(1, a.Length - n + 1)
+        loop a.Length - start + 1
+            out.Push(a[start + A_Index - 1])
         return out
     }
 
-    static Mean(arr, a, b) {
+    ; plain-language verdict for one phase: r = residual, pull = what the macro is pulling then
+    static Say(res, pull) {
+        rel := res / Max(pull, 0.5)
+        if (Abs(rel) < 0.05)
+            return "on target"
+        return (rel > 0 ? "pulls TOO LITTLE by " : "pulls TOO MUCH by ") Round(Abs(rel) * 100) "%"
+    }
+
+    static Avg(arr, a, b) {
         sum := 0, n := 0
         loop b - a + 1 {
             i := a + A_Index - 1
-            if (i > arr.Length)
-                break
-            sum += arr[i], n++
+            if (i >= 1 && i <= arr.Length)
+                sum += arr[i], n++
         }
         return n ? sum / n : 0
     }
 
-    static ForgetKey(key) {
-        Cfg.Data["learnData"].Delete(key)
-        Cfg.Data["learned"].Delete(key)
-        Cfg.Dirty()
+    static StartTest() {
+        if !Recorder.On
+            Recorder.Set(true, true)
+        Coach.TestOn := true
+        Coach.Msg := "TEST: 1) wiggle the mouse  2) let go completely  3) system ON, aim down sights and hold fire 2 s"
+        Toast.Show("info", "HANDS-OFF TEST", "Wiggle the mouse, then let go", "ADS + hold fire for 2 seconds", "Do not touch the mouse")
+        View.Changed()
     }
 }
 
@@ -4554,7 +4673,7 @@ class Diagnostics {
             hint := "No LMB event received yet. Fire once; if this stays 0, G HUB is not sending clicks to this script."
         if (hint != "")
             t .= "  ⚠ " hint "`n"
-        t .= Format("{:-22s}{:-18s}{}", "  RECOIL RECORDER", Recorder.On ? "▶ ACTIVE" : "○ DISABLED", "kept " Recorder.Kept ", discarded " Recorder.Dropped "  (" Recorder.Msg ")") "`n"
+        t .= Format("{:-22s}{:-18s}{}", "  RECOIL COACH", Recorder.On ? "▶ ACTIVE" : "○ DISABLED", "scored " (Coach.Seen - Coach.Skipped) ", skipped " Coach.Skipped ", mouse test: " (Coach.Mode() != "" ? Coach.Mode() : "not done") "  (" Coach.Msg ")") "`n"
         t .= Diagnostics.Mod("RECOIL TUNE", "m_tune", g("tune", "0") = "1" ? "step " g("tune_step", "?") " " g("tune_name", "") : "")
         t .= Diagnostics.Mod("DEBUG LOG", "m_debug")
         t .= Format("{:-22s}{:-18s}{}", "LOADOUT MANAGER", "✓ ENABLED", "loadout " g("loadout", "-") " (" g("loadout_n", "0") " saved), " g("fav_n", "?") " favourites") "`n"
@@ -5090,6 +5209,8 @@ SetTimer(() => Hud.KeepOnTop(), 2000)            ; borderless games can steal th
 SetTimer(() => Anim.Tick(), 700)                 ; "live" pulse
 SetTimer(() => (Center.Visible && (Center.Cur = "HOME" || Center.Cur = "DIAGNOSTICS") ? Center.RefreshPage() : 0), 1000)
 OnExit((*) => Cfg.SaveNow())
+if Cfg.Get("coach.on", 0)
+    SetTimer(() => Recorder.Set(true, true), -1500)   ; resume watching after a restart
 OnError(AppError)                                ; any other uncaught error: log it, no modal box, keep running
 
 if (Cfg.Status = "RECOVERED" || Cfg.Status = "DAMAGED")
@@ -5338,7 +5459,7 @@ Tubarao,Skopos,Denari,Noor,,,
 2560x1440|attackers|0.1160|0.1830|0.9260|0.7820|0.0040|0.0060
 2560x1440|defenders|0.1160|0.1830|0.9260|0.7820|0.0040|0.0060
 3440x1440|attackers|0.1399|0.2689|0.4225|0.8881|0.0030|0.0060
-3440x1440|defenders|0.2140|0.1830|0.8170|0.7820|0.0030|0.0060
+3440x1440|defenders|0.1399|0.2689|0.4225|0.8881|0.0030|0.0060
 [SETS]
 0=MAGNIFIED A,MAGNIFIED B,MAGNIFIED C,RED DOT A,RED DOT B,RED DOT C,HOLO A,HOLO B,HOLO C,HOLO D,REFLEX A,REFLEX B,REFLEX C,IRON SIGHT
 1=FLASH HIDER,COMPENSATOR,MUZZLE BRAKE,SUPPRESSOR,EXTENDED BARREL,NONE
