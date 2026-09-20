@@ -34,9 +34,10 @@ class App {
 }
 
 class Clr {   ; colour tokens (RGB hex, no #)
-    static Bg := "0D0F12", Panel := "15181D", Panel2 := "1E2229", Line := "2A2F37", Sel := "173325"
-    static Text := "F2F4F7", Dim := "9AA1AC", Mute := "5E6570"
-    static Green := "3DDC84", Amber := "F0B429", Red := "FF5C5C", Blue := "5AA9FF"
+    static Bg := "090B10", Panel := "11141B", Panel2 := "1A1F29", Line := "252B38", Sel := "0F2B38"
+    static Text := "F5F7FA", Dim := "97A1B2", Mute := "596378"
+    static Accent := "22D3EE", Ink := "04141A"                    ; brand colour + dark text used on top of it
+    static Green := "34E0A1", Amber := "FBBF24", Red := "FB7185", Blue := "60A5FA"   ; status colours
 }
 
 Clamp(v, lo, hi) => Min(Max(v, lo), hi)
@@ -1710,12 +1711,12 @@ class Ui {
     static Pt(v) => Max(7, Round(v * Cfg.Num("ui.scale", 1.0)))
 
     ; Text with a solid background (so it never leaves repaint artefacts on a card).
-    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "F2F4F7", bg := "0D0F12", opts := "") {
+    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "F5F7FA", bg := "090B10", opts := "") {
         g.SetFont("s" Ui.Pt(size) " " style " c" color, "Segoe UI")
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x200 +0x4000 Background" bg " " opts, text)
     }
 
-    static Mono(g, x, y, w, h, text, size := 9, color := "F2F4F7", bg := "0D0F12") {
+    static Mono(g, x, y, w, h, text, size := 9, color := "F5F7FA", bg := "090B10") {
         g.SetFont("s" Ui.Pt(size) " Norm c" color, "Consolas")
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x4000 Background" bg, text)
     }
@@ -1726,8 +1727,8 @@ class Ui {
 
     ; Clickable flat button. kind: n normal, p primary (green), d danger.
     static Btn(g, x, y, w, h, text, cb, kind := "n") {
-        bg := kind = "p" ? Clr.Green : kind = "d" ? "33191D" : Clr.Panel2
-        fg := kind = "p" ? "0B1A10" : kind = "d" ? Clr.Red : Clr.Text
+        bg := kind = "p" ? Clr.Accent : kind = "d" ? "33191D" : Clr.Panel2
+        fg := kind = "p" ? Clr.Ink : kind = "d" ? Clr.Red : Clr.Text
         g.SetFont("s" Ui.Pt(9) " Bold c" fg, "Segoe UI")
         t := g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x200 +0x100 Center Background" bg, text)
         t.OnEvent("Click", (*) => cb.Call())
@@ -1819,7 +1820,7 @@ class Seg {
     }
     Paint() {
         for i, t in this.Btns
-            Ui.Paint(t, i = this.Sel ? Clr.Green : Clr.Dim, i = this.Sel ? Clr.Sel : Clr.Panel2)
+            Ui.Paint(t, i = this.Sel ? Clr.Accent : Clr.Dim, i = this.Sel ? Clr.Sel : Clr.Panel2)
     }
     Show(v) {
         for t in this.Btns
@@ -1829,7 +1830,7 @@ class Seg {
 
 ; Clickable checkbox drawn as text ("☑ label" / "☐ label").
 class Toggle {
-    __New(g, x, y, w, label, on, cb, bg := "0D0F12") {
+    __New(g, x, y, w, label, on, cb, bg := "090B10") {
         this.Label := label
         this.On := on ? 1 : 0
         this.Cb := cb
@@ -1848,7 +1849,7 @@ class Toggle {
     }
     Paint() {
         this.Ctl.Text := (this.On ? "☑  " : "☐  ") this.Label
-        Ui.Paint(this.Ctl, this.On ? Clr.Green : Clr.Dim)
+        Ui.Paint(this.Ctl, this.On ? Clr.Accent : Clr.Dim)
     }
 }
 
@@ -1890,7 +1891,7 @@ class Toast {
         if (key = Toast.Last && A_TickCount - Toast.LastMs < 1500)
             return                              ; identical toast just shown: do not spam
         Toast.Last := key, Toast.LastMs := A_TickCount
-        col := kind = "ok" ? Clr.Green : kind = "warn" ? Clr.Amber : kind = "error" ? Clr.Red : Clr.Blue
+        col := kind = "ok" ? Clr.Accent : kind = "warn" ? Clr.Amber : kind = "error" ? Clr.Red : Clr.Blue
         c := Toast.Ctl
         SetText(c["title"], title)
         Ui.Paint(c["title"], col)
@@ -2173,7 +2174,7 @@ class Center {
     static Card(add, g, x, y, w, h, title) {
         add(Ui.Rect(g, x, y, w, h, Clr.Panel))
         add(Ui.Rect(g, x, y, w, 2, Clr.Line))                    ; hard top edge
-        add(Ui.Rect(g, x + 14, y + 12, 3, 12, Clr.Green))        ; accent tick
+        add(Ui.Rect(g, x + 14, y + 12, 3, 12, Clr.Accent))        ; accent tick
         add(Ui.Txt(g, x + 24, y + 8, w - 38, 20, title, 8, "Bold", Clr.Dim, Clr.Panel))
     }
 
@@ -2195,12 +2196,12 @@ class Center {
 
         ; --- header ---------------------------------------------------------------
         Ui.Rect(g, 0, 0, Center.W, 60, Clr.Panel)
-        Ui.Txt(g, 20, 12, 44, 36, "SPM", 11, "Bold", "0B1A10", Clr.Green, "Center")
+        Ui.Txt(g, 20, 12, 44, 36, "SPM", 11, "Bold", Clr.Ink, Clr.Accent, "Center")
         Ui.Txt(g, 76, 11, 380, 24, "SIEGE PROFILE MANAGER", 13, "Bold", Clr.Text, Clr.Panel)
         Ui.Txt(g, 76, 34, 380, 16, "CONTROL CENTRE   ·   V" App.Version, 8, "Bold", Clr.Mute, Clr.Panel)
         Center.Ctl["pill"] := Ui.Txt(g, 470, 18, 300, 26, "", 10, "Bold", Clr.Green, Clr.Panel, "Right")
         Ui.Btn(g, 790, 14, 170, 32, "◂  COMPACT HUD", () => View.SetMode("hud"))
-        Ui.Rect(g, 0, 60, Center.W, 2, Clr.Green)
+        Ui.Rect(g, 0, 60, Center.W, 2, Clr.Accent)
         ; --- sidebar --------------------------------------------------------------
         Ui.Rect(g, 0, 61, 176, Center.H - 61, Clr.Panel)
         y := 78
@@ -2237,8 +2238,8 @@ class Center {
             for c in list
                 c.Visible := (pname = name)
         for n, t in Center.Nav {
-            Ui.Paint(t, n = name ? Clr.Green : Clr.Dim, n = name ? Clr.Sel : Clr.Panel)
-            Ui.Paint(Center.NavBar[n], Clr.Green, n = name ? Clr.Green : Clr.Panel)
+            Ui.Paint(t, n = name ? Clr.Accent : Clr.Dim, n = name ? Clr.Sel : Clr.Panel)
+            Ui.Paint(Center.NavBar[n], Clr.Accent, n = name ? Clr.Accent : Clr.Panel)
         }
         Cfg.Set("ui.page", name)
         Center.RefreshPage()
@@ -3105,7 +3106,7 @@ class Center {
             Ui.Paint(Center.Cells[Center.Lit], Clr.Dim, Clr.Panel2)
         Center.Lit := idx
         if (idx >= 1 && idx <= Center.Cells.Length)
-            Ui.Paint(Center.Cells[idx], Clr.Green, Clr.Sel)
+            Ui.Paint(Center.Cells[idx], Clr.Accent, Clr.Sel)
     }
 
 
@@ -3128,7 +3129,7 @@ class Center {
         c["r_msg"] := add(Ui.Txt(g, 598, 212, 348, 30, "", 8, "Norm", Clr.Mute, Clr.Panel))
         c["r_msg"].Opt("-0x200 -0x4000")
         Center.Card(add, g, 196, 262, 764, 138, "YOUR PULL OVER THE SPRAY  (average of the recorded bursts)")
-        c["r_c1"] := add(Ui.Mono(g, 212, 294, 732, 24, "", 14, Clr.Green, Clr.Panel))
+        c["r_c1"] := add(Ui.Mono(g, 212, 294, 732, 24, "", 14, Clr.Accent, Clr.Panel))
         c["r_c2"] := add(Ui.Mono(g, 212, 320, 732, 18, "", 8, Clr.Mute, Clr.Panel))
         c["r_c3"] := add(Ui.Txt(g, 212, 346, 732, 22, "", 11, "Bold", Clr.Text, Clr.Panel))
         c["r_c4"] := add(Ui.Txt(g, 212, 370, 732, 20, "", 8, "Norm", Clr.Dim, Clr.Panel))
@@ -4539,10 +4540,10 @@ class Wizard {
         add := (pg, ctrl) => (Wizard.Pages[pg].Push(ctrl), ctrl)
 
         Ui.Rect(g, 0, 0, 640, 84, Clr.Panel)
-        Ui.Rect(g, 0, 84, 640, 2, Clr.Green)
-        Ui.Txt(g, 24, 14, 44, 34, "SPM", 11, "Bold", "0B1A10", Clr.Green, "Center")
+        Ui.Rect(g, 0, 84, 640, 2, Clr.Accent)
+        Ui.Txt(g, 24, 14, 44, 34, "SPM", 11, "Bold", Clr.Ink, Clr.Accent, "Center")
         Ui.Txt(g, 80, 12, 400, 26, "QUICK SETUP", 14, "Bold", Clr.Text, Clr.Panel)
-        c["prog"] := Ui.Mono(g, 80, 44, 380, 22, "", 11, Clr.Green, Clr.Panel)
+        c["prog"] := Ui.Mono(g, 80, 44, 380, 22, "", 11, Clr.Accent, Clr.Panel)
         c["cnt"] := Ui.Txt(g, 480, 14, 136, 26, "", 11, "Bold", Clr.Dim, Clr.Panel, "Right")
 
         ; ---- page 1: settings -------------------------------------------------------
