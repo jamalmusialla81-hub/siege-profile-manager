@@ -1245,6 +1245,8 @@ class Live {
     static IdleSec := 12
     static LostSec := 600
     static Recent := []             ; [{t, text}] newest last
+    ; Firing bursts as reported by the Lua (burst_start / burst_end events). Informational only.
+    static Burst := Map("active", 0, "t", 0, "recoil", 0, "rapid", 0, "weapon", "", "last", "", "lastT", 0)
     static DbWarned := false
 
     static Poll() {
@@ -1373,6 +1375,11 @@ class Live {
 
     static ApplyEvent(pkt) {
         evt := pkt["type"]
+        if (evt = "burst_start" || evt = "burst_end") {     ; module activity: no toast, no log spam
+            Sync.FromEvent(evt, pkt)
+            View.Changed()
+            return
+        }
         Diag.Log("event " evt)
         Sync.FromEvent(evt, pkt)
         Note.Queue.Push(pkt)
@@ -1501,6 +1508,15 @@ class Sync {
                 Calib.OnLuaFailed(e.Get("side", ""), e.Get("reason", ""))
             case "calibration_reset":
                 Calib.OnLuaReset(e.Get("side", ""))
+            case "burst_start":
+                b := Live.Burst
+                b["active"] := 1, b["t"] := A_TickCount, b["weapon"] := e.Get("weapon", "")
+                b["recoil"] := e.Get("recoil", "0") = "1" ? 1 : 0
+                b["rapid"] := e.Get("rapid", "0") = "1" ? 1 : 0
+            case "burst_end":
+                b := Live.Burst
+                b["active"] := 0, b["lastT"] := A_TickCount
+                b["last"] := Round(e.Get("ms", 0) / 1000, 1) " s, " e.Get("ticks", 0) " ticks, " e.Get("clicks", 0) " clicks"
         }
     }
 
@@ -3268,7 +3284,10 @@ class Center {
     static BuildDiagnostics(g) {
         add := Center.Reg.Bind(Center, "DIAGNOSTICS")
         c := Center.Ctl
-        c["d_text"] := add(Ui.Mono(g, 196, 76, 764, 352, "", 9, Clr.Text, Clr.Bg))
+        ; read-only Edit (not a label): the report is longer than the box, so it needs a scroll bar
+        g.SetFont("s" Ui.Pt(9) " Norm c" Clr.Text, "Consolas")
+        c["d_text"] := add(g.AddEdit("x" Ui.S(196) " y" Ui.S(76) " w" Ui.S(764) " h" Ui.S(352) " ReadOnly Multi +VScroll Background" Clr.Panel, ""))
+        Ui.DarkTheme(c["d_text"], "Explorer")
         add(Ui.Btn(g, 196, 438, 220, 32, "COPY DIAGNOSTIC REPORT", () => Center.CopyReport(), "p"))
         add(Ui.Btn(g, 424, 438, 150, 32, "CLEAR LOG", () => (Diag.Lines := [], Center.RefreshDiag())))
         add(Ui.Txt(g, 586, 442, 374, 24, "Report contains no paths or personal data.", 8, "Norm", Clr.Mute))
@@ -3277,9 +3296,19 @@ class Center {
         c["d_log"].ModifyCol(1, Ui.S(740))
     }
 
+    static DiagLast := ""
     static RefreshDiag() {
         c := Center.Ctl
-        SetText(c["d_text"], Diagnostics.Text())
+        txt := StrReplace(Diagnostics.Text(), "`n", "`r`n")
+        if (txt != Center.DiagLast) {
+            Center.DiagLast := txt
+            ctl := c["d_text"]
+            first := 0
+            try first := SendMessage(0xCE, 0, 0, ctl)       ; EM_GETFIRSTVISIBLELINE: keep the scroll position
+            ctl.Value := txt
+            if first
+                try SendMessage(0xB6, 0, first, ctl)        ; EM_LINESCROLL
+        }
         lv := c["d_log"]
         lv.Opt("-Redraw")
         lv.Delete()
@@ -3669,6 +3698,64 @@ class Profiles {
 class Diagnostics {
     static Row(label, value) => Format("{:-22s}{}", label, value) "`n"
 
+    ; --- module status ---------------------------------------------------------------
+    ; Every state comes from a field the Lua put into SPMSTATE. A field the Lua did not send
+    ; (old script, no data yet) is shown as UNKNOWN - a module is never assumed from the weapon.
+    static Sym(state) {
+        switch state {
+            case "ENABLED": return "✓ ENABLED"
+            case "DISABLED": return "○ DISABLED"
+            case "ACTIVE": return "▶ ACTIVE"
+            case "UNAVAILABLE": return "⚠ UNAVAILABLE"
+        }
+        return "? UNKNOWN"
+    }
+
+    ; state text for one Lua field; kind = "recoil"/"rapid" lets a running burst upgrade ENABLED to ACTIVE.
+    static Mod(label, field, detail := "", kind := "") {
+        state := Live.Data.Has(field) ? Live.Data[field] : ""
+        b := Live.Burst
+        if (state = "ENABLED" && kind != "" && b["active"] && b[kind] = 1 && (A_TickCount - b["t"]) < 60000)
+            state := "ACTIVE"
+        txt := Diagnostics.Sym(state)
+        if (state = "ACTIVE" && kind != "")
+            txt .= " (firing)"
+        return Format("{:-22s}{:-18s}{}", label, txt, detail) "`n"
+    }
+
+    static Modules() {
+        if (Live.Data.Count = 0)
+            return "  no state received yet - every module is UNKNOWN`n"
+        g := (k, d := "") => Live.Data.Has(k) ? Live.Data[k] : d
+        t := ""
+        t .= Diagnostics.Mod("SYSTEM", "m_system")
+        t .= Diagnostics.Mod("OPERATOR DETECTION", "m_detect", "GetMousePosition + tile grid")
+        t .= Diagnostics.Mod("CALIBRATION", "m_calib", "ATK " Calib.Short("attackers") "  DEF " Calib.Short("defenders") "  grid " g("grid", "?"))
+        t .= Diagnostics.Mod("SLOT SYNC (1 / 2)", "m_slotsync", g("slot_key", "?") " is " g("slot_lock", "?") "  (OFF = primary, ON = secondary)")
+        t .= Diagnostics.Mod("RECOIL", "m_recoil", SubStr(g("recoil", ""), 1, 40), "recoil")
+        rp := g("recoil_profile", "")
+        t .= Format("{:-22s}{:-18s}{}", "  RECOIL PROFILE", rp != "" ? rp : "? UNKNOWN"
+            , rp != "" ? "gain " g("recoil_gain", "?") ", secondary " (g("recoil_secondary", "0") = "1" ? "on" : "off") : "") "`n"
+        t .= Diagnostics.Mod("JITTER", "m_jitter", g("jitter_amount", "") != "" ? "amount x" g("jitter_amount") : "")
+        cap := g("rapid_cap", "")
+        rd := cap = "" ? "" : cap = "-" ? "weapon " g("weapon", "?") " is not in the Lua's semi-auto list"
+            : "weapon " g("weapon", "?") ": semi-auto, cap " cap " rpm"
+        t .= Diagnostics.Mod("RAPID FIRE", "m_rapid", rd, "rapid")
+        t .= Diagnostics.Mod("RECOIL TUNE", "m_tune", g("tune", "0") = "1" ? "step " g("tune_step", "?") " " g("tune_name", "") : "")
+        t .= Diagnostics.Mod("DEBUG LOG", "m_debug")
+        t .= Format("{:-22s}{:-18s}{}", "LOADOUT MANAGER", "✓ ENABLED", "loadout " g("loadout", "-") " (" g("loadout_n", "0") " saved), " g("fav_n", "?") " favourites") "`n"
+        lk := Live.Status
+        t .= Format("{:-22s}{:-18s}{}", "STATE EXPORT", (lk = "CONNECTED" || lk = "IDLE") ? "✓ ENABLED" : "⚠ " lk, "protocol " g("protocol", "?") ", seq " Live.Seq) "`n"
+        lc := Sync.LuaConfig()
+        t .= Format("{:-22s}{:-18s}{}", "CONFIG BLOCK", lc[1] = "OK" ? "✓ IN SYNC" : "⚠ " lc[1], "rev " g("cfgrev", "?")) "`n"
+        b := Live.Burst
+        lastAge := b["lastT"] ? Round((A_TickCount - b["lastT"]) / 1000) "s ago" : ""
+        t .= Format("{:-22s}{}", "LAST FIRING BURST", b["last"] != "" ? b["last"] "  (" lastAge ")" : "none yet") "`n"
+        wn := g("warn_n", "0")
+        t .= Format("{:-22s}{}", "LUA WARNINGS", wn = "0" ? "none" : "⚠ " wn " - first: " SubStr(g("warn_1", ""), 1, 60)) "`n"
+        return t
+    }
+
     static Text() {
         t := ""
         age := Live.AgeMs()
@@ -3700,6 +3787,8 @@ class Diagnostics {
         t .= Diagnostics.Row("BARREL", has ? Live.Get("barrel", "-") : "-")
         t .= Diagnostics.Row("GRIP", has ? Live.Get("grip", "-") : "-")
         t .= Diagnostics.Row("NAMED LOADOUT", has ? Live.Get("loadout", "-") : "-")
+        t .= "`nMODULE STATUS  (as reported by the Lua)`n"
+        t .= Diagnostics.Modules()
         t .= "`nCONFIG`n"
         t .= Diagnostics.Row("CONFIG VERSION", App.CfgVersion)
         t .= Diagnostics.Row("CONFIG STATUS", (Cfg.Status = "VALID" || Cfg.Status = "NEW") ? "✓ " (Cfg.Status = "NEW" ? "NEW" : "VALID") : "⚠ " Cfg.StatusMsg)

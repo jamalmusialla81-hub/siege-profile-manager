@@ -2254,6 +2254,28 @@ local function ExportState()
         end
     end
     local _, gridLabel = GetGridSpec(State.side)
+    -- MODULE STATUS (informational; mirrors the conditions the modules themselves use, changes nothing)
+    local jc = CONFIG.recoil.jitter or {}
+    local rf = CONFIG.rapidFire or {}
+    local sc = CONFIG.slotSync
+    local lockApi = type(IsKeyLockOn) == "function"
+    local lockState = "-"
+    if sc and sc.enabled and lockApi then
+        local okL, onL = pcall(IsKeyLockOn, sc.lockKey)
+        if okL then lockState = onL and "ON" or "OFF" end
+    end
+    local runnable = State.enabled and not State.calibration.active     -- the recoil/rapid loops only run then
+    local semiCap = slot.weapon and SEMI_AUTO[slot.weapon] or nil
+    local pf, pk = FindRecoilProfile(slot)
+    local profileKind = "NONE"
+    if pf then
+        if State.tune.starter[pk] then profileKind = "STARTER"
+        elseif pf.est then profileKind = "ESTIMATED"
+        elseif pk == RecoilKey(slot) then profileKind = "TUNED"
+        else profileKind = "BUILT-IN" end
+    end
+    local favCount = 0
+    for _ in pairs(State.favorites) do favCount = favCount + 1 end
     local cal = State.calibration
     local calText
     if cal.active then
@@ -2312,6 +2334,29 @@ local function ExportState()
             ((State.tune.active and State.tune.field >= #TUNE_FIELDS) and "FINISH" or "next step") },
         { "tune_reset", BindText(CONFIG.input.tune.reset) .. " = reset" },
         { "debug", State.debug and 1 or 0 },
+        -- module states (ENABLED / DISABLED / ACTIVE / UNAVAILABLE), straight from the Lua
+        { "m_system", State.enabled and "ENABLED" or "DISABLED" },
+        { "m_detect", type(GetMousePosition) ~= "function" and "UNAVAILABLE" or (State.enabled and "ENABLED" or "DISABLED") },
+        { "m_calib", cal.active and "ACTIVE" or "ENABLED" },
+        { "m_slotsync", (not (sc and sc.enabled)) and "DISABLED" or (lockApi and "ENABLED" or "UNAVAILABLE") },
+        { "slot_key", sc and sc.lockKey or "-" },
+        { "slot_lock", lockState },
+        { "m_recoil", (CONFIG.recoil.enabled and runnable) and "ENABLED" or "DISABLED" },
+        { "recoil_cfg", CONFIG.recoil.enabled and 1 or 0 },
+        { "recoil_profile", profileKind },
+        { "recoil_gain", string.format("%.2f", CONFIG.recoil.gain or 1) },
+        { "recoil_secondary", CONFIG.recoil.secondary and 1 or 0 },
+        { "m_jitter", (jc.enabled and (jc.amount or 1) > 0) and "ENABLED" or "DISABLED" },
+        { "jitter_amount", string.format("%.2f", jc.amount or 1) },
+        { "m_rapid", (rf.enabled and runnable) and "ENABLED" or "DISABLED" },
+        { "rapid_cfg", rf.enabled and 1 or 0 },
+        { "rapid_cap", semiCap or "-" },
+        { "m_tune", State.tune.active and "ACTIVE" or "ENABLED" },
+        { "m_debug", State.debug and "ENABLED" or "DISABLED" },
+        { "grid", gridLabel },
+        { "fav_n", favCount },
+        { "warn_n", #State.warnings },
+        { "warn_1", State.warnings[1] or "-" },
         -- V2 additions (companion): config/db revisions, named loadout, display + game settings, grid overrides
         { "cfgrev", State.cfgRev },
         { "dbrev", State.dbRev or "-" },
@@ -2707,6 +2752,7 @@ local function RunRecoil()
         if IsMouseButtonPressed(cfg.fireButton) then
             local start, remX, remY = GetRunningTime(), 0, 0
             local sumX, sumY, ticks, clicks = 0, 0, 0, 0
+            Emit("burst_start", "weapon", ActiveWeaponSlot().weapon, "recoil", p and 1 or 0, "rapid", rapid and 1 or 0)
             local strength, side, late = 1, 0, 1
             if p then strength, side, late = p.strength or 1, p.side or 0, p.late or 1 end
             -- per-burst randomness: this spray pulls a little harder or softer than the last
@@ -2794,6 +2840,7 @@ local function RunRecoil()
             if rapid then ReleaseMouseButton(cfg.fireButton) end
             -- proof for the overlay/console that the macro really fired, and how much it pulled
             State.spray = { ms = GetRunningTime() - start, n = ticks, x = sumX, y = sumY, c = clicks }
+            Emit("burst_end", "ms", State.spray.ms, "ticks", ticks, "clicks", clicks)
             Render()
         else
             Sleep(1)
