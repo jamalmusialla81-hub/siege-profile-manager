@@ -4,7 +4,7 @@ A Logitech G HUB Lua script (`siege_profile_manager.lua`) plus an AutoHotkey v2 
 (`SiegeOverlay.ahk`) for Rainbow Six Siege.
 
 
-## V2 (branch `v2`, untested on Windows)
+## V2 (pre-release, not yet fully tested on Windows)
 
 The AHK is now a control centre (compact HUD + full window) with persistent config, named loadouts,
 calibration wizard, first-run setup, diagnostics and a versioned Lua protocol
