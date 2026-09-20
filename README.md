@@ -11,6 +11,12 @@ calibration wizard, first-run setup, diagnostics and a versioned Lua protocol
 (`SPMSTATE` / `SPMEVENT` / `SPMBEAT`). Settings reach the Lua through a generated `SPM_USER` block
 (Settings > COPY FULL LUA SCRIPT + MY CONFIG copies your whole Lua with your config merged in: select all in the G HUB script, paste, save).
 
+### Recoil recorder (V2.1)
+F6 (or Home > RECORD MY RECOIL) records how *you* pull the mouse during a spray (Windows Raw Input, no screen or
+memory reading). Turn the system OFF (`RALT+MB5`), spray a wall by hand, and after 3 bursts a profile for that
+exact weapon + barrel + grip is fitted and saved. Copy the full Lua script to use it. Bursts where the macro was
+moving the mouse are discarded automatically.
+
 ## Files
 
 | File | What it is |

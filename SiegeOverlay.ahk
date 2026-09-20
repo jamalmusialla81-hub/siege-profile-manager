@@ -34,8 +34,8 @@ class App {
 }
 
 class Clr {   ; colour tokens (RGB hex, no #)
-    static Bg := "14161A", Panel := "1B1E24", Panel2 := "23272E", Line := "2E333B"
-    static Text := "E8E8E8", Dim := "A9ADB5", Mute := "6F747D"
+    static Bg := "0D0F12", Panel := "15181D", Panel2 := "1E2229", Line := "2A2F37", Sel := "173325"
+    static Text := "F2F4F7", Dim := "9AA1AC", Mute := "5E6570"
     static Green := "3DDC84", Amber := "F0B429", Red := "FF5C5C", Blue := "5AA9FF"
 }
 
@@ -568,6 +568,8 @@ class Cfg {
         d["state"] := Map("side", "attackers", "operator", "")
         d["favorites"] := []
         d["favInit"] := 0
+        d["learned"] := Map()           ; key "WEAPON:BARREL:GRIP" -> fitted profile (goes to the Lua)
+        d["learnData"] := Map()         ; key -> aggregated recordings (per-100 ms sums), kept on this PC only
         d["saved"] := Map()
         d["loadouts"] := Map()
         d["calibration"] := Map()
@@ -576,7 +578,7 @@ class Cfg {
             , "hudX", 40, "hudY", 40, "hudScale", 1.0, "opacity", 235, "notifications", 1
             , "launch", "hud", "rememberPos", 1, "centerX", "", "centerY", "", "page", "HOME"
             , "sections", Cfg.DefaultSections())
-        d["hotkeys"] := Map("mode", "F8", "visible", "F9", "capture", "F7", "profiles", "F10")
+        d["hotkeys"] := Map("mode", "F8", "visible", "F9", "capture", "F7", "profiles", "F10", "record", "F6")
         d["setup"] := Map("done", 0)
         d["sync"] := Map("baseline", "", "copiedRev", "")
         d["lua"] := Map("path", "")
@@ -626,7 +628,7 @@ class Cfg {
     ; The part of the config the Lua consumes. Changes to it can make the Lua's copy outdated.
     static LuaPart() {
         m := Map()
-        for k in ["game", "prefs", "state", "favorites", "saved", "loadouts", "calibration", "luaKeybinds"]
+        for k in ["game", "prefs", "state", "favorites", "saved", "loadouts", "calibration", "luaKeybinds", "learned"]
             m[k] := Cfg.Data[k]
         return m
     }
@@ -843,12 +845,35 @@ class Cfg {
                     out["calibration"][side] := Map("tlx", c["tlx"] + 0, "tly", c["tly"] + 0, "brx", c["brx"] + 0
                         , "bry", c["bry"] + 0, "res", c.Get("res", ""))
             }
+        out["learned"] := Map()
+        if (data.Has("learned") && Type(data["learned"]) = "Map")
+            for key, pr in data["learned"]
+                if (Type(pr) = "Map" && RegExMatch(String(key), "^[^:]+:[^:]+:[^:]+$") && Cfg.NumFields(pr, ["r", "y1", "y2", "tym1", "tym2", "side"])) {
+                    m2 := Map()
+                    for f in ["r", "y1", "y2", "tym1", "tym2", "side", "strength", "late", "n"]
+                        m2[f] := (pr.Has(f) && IsNumber(pr[f])) ? pr[f] + 0 : (f = "strength" || f = "late" ? 1 : 0)
+                    m2["t"] := pr.Has("t") ? String(pr["t"]) : ""
+                    out["learned"][String(key)] := m2
+                }
+        out["learnData"] := Map()
+        if (data.Has("learnData") && Type(data["learnData"]) = "Map")
+            for key, r in data["learnData"]
+                if (Type(r) = "Map" && r.Has("y") && r.Has("x") && r.Has("c") && Type(r["y"]) = "Array" && Type(r["x"]) = "Array" && Type(r["c"]) = "Array"
+                    && r["y"].Length = r["x"].Length && r["y"].Length = r["c"].Length && r.Has("n") && IsNumber(r["n"]))
+                    out["learnData"][String(key)] := r
         out["luaKeybinds"] := Map()
         if (data.Has("luaKeybinds") && Type(data["luaKeybinds"]) = "Map")
             for act, b in data["luaKeybinds"]
                 if (Type(b) = "Map" && b.Has("mod") && b.Has("button") && IndexOf(Hk.Mods, b["mod"])
                     && IsInteger(b["button"]) && b["button"] >= 1 && b["button"] <= 5)
                     out["luaKeybinds"][act] := Map("mod", StrLower(b["mod"]), "button", Integer(b["button"]))
+    }
+
+    static NumFields(m, keys) {
+        for k in keys
+            if (!m.Has(k) || !IsNumber(m[k]))
+                return false
+        return true
     }
 
     static Names(list) {
@@ -1013,6 +1038,12 @@ class LuaBlock {
                     . ", secondary = " LuaBlock.Slot(e["secondary"]) " },`n"
             t .= "        } },`n"
         }
+        t .= "    },`n"
+        t .= "    recoil = {`n"
+        for key, pr in Cfg.Data["learned"]
+            t .= "        [" LuaBlock.Q(key) "] = { r = " LuaBlock.N(pr["r"]) ", y1 = " LuaBlock.N(pr["y1"]) ", y2 = " LuaBlock.N(pr["y2"])
+                . ", tym1 = " LuaBlock.N(pr["tym1"]) ", tym2 = " LuaBlock.N(pr["tym2"]) ", side = " LuaBlock.N(pr["side"])
+                . ", strength = " LuaBlock.N(pr["strength"]) ", late = " LuaBlock.N(pr["late"]) " },`n"
         t .= "    },`n"
         t .= "    calibration = {`n"
         for side, c in Cfg.Data["calibration"]
@@ -1509,6 +1540,8 @@ class Sync {
             case "calibration_reset":
                 Calib.OnLuaReset(e.Get("side", ""))
             case "burst_start":
+                if IsObject(Recorder.Cur)
+                    Recorder.Cur["macro"] := 1               ; the macro is moving the mouse: this recording is not "manual"
                 b := Live.Burst
                 b["active"] := 1, b["t"] := A_TickCount, b["weapon"] := e.Get("weapon", "")
                 b["recoil"] := e.Get("recoil", "0") = "1" ? 1 : 0
@@ -1639,12 +1672,12 @@ class Ui {
     static Pt(v) => Max(7, Round(v * Cfg.Num("ui.scale", 1.0)))
 
     ; Text with a solid background (so it never leaves repaint artefacts on a card).
-    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "E8E8E8", bg := "14161A", opts := "") {
+    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "F2F4F7", bg := "0D0F12", opts := "") {
         g.SetFont("s" Ui.Pt(size) " " style " c" color, "Segoe UI")
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x200 +0x4000 Background" bg " " opts, text)
     }
 
-    static Mono(g, x, y, w, h, text, size := 9, color := "E8E8E8", bg := "14161A") {
+    static Mono(g, x, y, w, h, text, size := 9, color := "F2F4F7", bg := "0D0F12") {
         g.SetFont("s" Ui.Pt(size) " Norm c" color, "Consolas")
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x4000 Background" bg, text)
     }
@@ -1655,7 +1688,7 @@ class Ui {
 
     ; Clickable flat button. kind: n normal, p primary (green), d danger.
     static Btn(g, x, y, w, h, text, cb, kind := "n") {
-        bg := kind = "p" ? Clr.Green : kind = "d" ? "3A2226" : Clr.Panel2
+        bg := kind = "p" ? Clr.Green : kind = "d" ? "33191D" : Clr.Panel2
         fg := kind = "p" ? "0B1A10" : kind = "d" ? Clr.Red : Clr.Text
         g.SetFont("s" Ui.Pt(9) " Bold c" fg, "Segoe UI")
         t := g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x200 +0x100 Center Background" bg, text)
@@ -1748,7 +1781,7 @@ class Seg {
     }
     Paint() {
         for i, t in this.Btns
-            Ui.Paint(t, i = this.Sel ? Clr.Green : Clr.Dim, i = this.Sel ? "1F3B2C" : Clr.Panel2)
+            Ui.Paint(t, i = this.Sel ? Clr.Green : Clr.Dim, i = this.Sel ? Clr.Sel : Clr.Panel2)
     }
     Show(v) {
         for t in this.Btns
@@ -1758,7 +1791,7 @@ class Seg {
 
 ; Clickable checkbox drawn as text ("☑ label" / "☐ label").
 class Toggle {
-    __New(g, x, y, w, label, on, cb, bg := "14161A") {
+    __New(g, x, y, w, label, on, cb, bg := "0D0F12") {
         this.Label := label
         this.On := on ? 1 : 0
         this.Cb := cb
@@ -1905,6 +1938,7 @@ class Hud {
         c["t1"] := Ui.Txt(g, 16, 160, pw - 28, f(20), "", f(9.5), "Bold", Clr.Amber, Clr.Panel)
         c["t2"] := Ui.Txt(g, 16, 160, pw - 28, f(40), "", f(9.5), "Bold", Clr.Text, Clr.Panel)
         c["t3"] := Ui.Txt(g, 16, 160, pw - 28, f(36), "", f(8.5), "Norm", Clr.Dim, Clr.Panel)
+        c["rec"] := Ui.Txt(g, 16, 160, pw - 28, f(20), "", f(9.5), "Bold", Clr.Red, Clr.Panel)
         c["t2"].Opt("-0x200 -0x4000")            ; several lines: no vertical centring / ellipsis
         c["t3"].Opt("-0x200 -0x4000")
         Hud.Gui := g
@@ -1966,6 +2000,11 @@ class Hud {
             rows.Push([c["t3"], Live.Get("tune_next", "") "`n" Live.Get("tune_reset", ""), sub, 36])
         }
 
+        if Recorder.On {
+            key := Recorder.Key()
+            rows.Push([c["rec"], "● REC  " (key != "" ? StrSplit(key, ":")[1] : "-") "  ·  " Recorder.Kept " bursts", Clr.Red, 20])
+        }
+
         ; --- status line ----------------------------------------------------------
         statusText := "", statusCol := Clr.Green
         if (sec["connection"] || !hasData || st != "CONNECTED" && st != "IDLE") {
@@ -1990,7 +2029,7 @@ class Hud {
             rows.Push([c["status"], statusText, statusCol, 22])
 
         ; --- layout ---------------------------------------------------------------
-        for n in ["op", "weapon", "scope", "att", "cal", "dbg", "status", "t1", "t2", "t3"]
+        for n in ["op", "weapon", "scope", "att", "cal", "dbg", "status", "t1", "t2", "t3", "rec"]
             c[n].Visible := false
         y := 30
         pw := Hud.PW
@@ -2062,7 +2101,11 @@ class Center {
     static Ctl := Map()             ; named controls
     static Pages := Map()           ; page -> [controls]
     static Nav := Map()
-    static Names := ["HOME", "OPERATORS", "LOADOUTS", "CALIBRATION", "HUD", "SETTINGS", "HOTKEYS", "DIAGNOSTICS"]
+    static NavBar := Map()
+    static Chips := []
+    static ChipDefs := [["RECOIL", "m_recoil"], ["RAPID FIRE", "m_rapid"], ["JITTER", "m_jitter"]
+        , ["SLOT SYNC", "m_slotsync"], ["DETECT", "m_detect"], ["SYSTEM", "m_system"]]
+    static Names := ["HOME", "OPERATORS", "LOADOUTS", "CALIBRATION", "RECOIL", "HUD", "SETTINGS", "HOTKEYS", "DIAGNOSTICS"]
     static Cur := "HOME"
     static Guard := false           ; true while the code (not the user) changes a control
     static W := 980
@@ -2091,7 +2134,9 @@ class Center {
 
     static Card(add, g, x, y, w, h, title) {
         add(Ui.Rect(g, x, y, w, h, Clr.Panel))
-        add(Ui.Txt(g, x + 14, y + 8, w - 28, 18, title, 8, "Bold", Clr.Mute, Clr.Panel))
+        add(Ui.Rect(g, x, y, w, 2, Clr.Line))                    ; hard top edge
+        add(Ui.Rect(g, x + 14, y + 12, 3, 12, Clr.Green))        ; accent tick
+        add(Ui.Txt(g, x + 24, y + 8, w - 38, 20, title, 8, "Bold", Clr.Dim, Clr.Panel))
     }
 
     static Build() {
@@ -2101,7 +2146,8 @@ class Center {
         g.MarginX := 0, g.MarginY := 0
         g.BackColor := Clr.Bg
         Center.Gui := g
-        Center.Ctl := Map(), Center.Pages := Map(), Center.Nav := Map(), Center.Segs := Map(), Center.Toggles := Map()
+        Center.Ctl := Map(), Center.Pages := Map(), Center.Nav := Map(), Center.NavBar := Map(), Center.Segs := Map(), Center.Toggles := Map()
+        Center.Chips := []
         Center.Cur := Cfg.Get("ui.page", "HOME")
         if !IndexOf(Center.Names, Center.Cur)
             Center.Cur := "HOME"
@@ -2111,16 +2157,18 @@ class Center {
 
         ; --- header ---------------------------------------------------------------
         Ui.Rect(g, 0, 0, Center.W, 60, Clr.Panel)
-        Ui.Txt(g, 20, 14, 420, 32, "SIEGE PROFILE MANAGER", 13, "Bold", Clr.Text, Clr.Panel)
-        Ui.Txt(g, 330, 18, 90, 24, "V" App.Version, 9, "Norm", Clr.Mute, Clr.Panel)
+        Ui.Txt(g, 20, 12, 44, 36, "SPM", 11, "Bold", "0B1A10", Clr.Green, "Center")
+        Ui.Txt(g, 76, 11, 380, 24, "SIEGE PROFILE MANAGER", 13, "Bold", Clr.Text, Clr.Panel)
+        Ui.Txt(g, 76, 34, 380, 16, "CONTROL CENTRE   ·   V" App.Version, 8, "Bold", Clr.Mute, Clr.Panel)
         Center.Ctl["pill"] := Ui.Txt(g, 470, 18, 300, 26, "", 10, "Bold", Clr.Green, Clr.Panel, "Right")
         Ui.Btn(g, 790, 14, 170, 32, "◂  COMPACT HUD", () => View.SetMode("hud"))
-        Ui.Rect(g, 0, 60, Center.W, 1, Clr.Line)
+        Ui.Rect(g, 0, 60, Center.W, 2, Clr.Green)
         ; --- sidebar --------------------------------------------------------------
         Ui.Rect(g, 0, 61, 176, Center.H - 61, Clr.Panel)
         y := 78
         for name in Center.Names {
-            t := Ui.Txt(g, 10, y, 156, 38, "   " name, 10, "Bold", Clr.Dim, Clr.Panel, "+0x100")
+            Center.NavBar[name] := Ui.Rect(g, 0, y, 4, 38, Clr.Panel)
+            t := Ui.Txt(g, 4, y, 172, 38, "    " name, 10, "Bold", Clr.Dim, Clr.Panel, "+0x100")
             t.OnEvent("Click", Center.OpenPage.Bind(Center, name))
             Center.Nav[name] := t
             y += 42
@@ -2133,6 +2181,7 @@ class Center {
         Center.BuildOperators(g)
         Center.BuildLoadouts(g)
         Center.BuildCalibration(g)
+        Center.BuildRecoil(g)
         Center.BuildHud(g)
         Center.BuildSettings(g)
         Center.BuildHotkeys(g)
@@ -2149,8 +2198,10 @@ class Center {
         for pname, list in Center.Pages
             for c in list
                 c.Visible := (pname = name)
-        for n, t in Center.Nav
-            Ui.Paint(t, n = name ? Clr.Green : Clr.Dim, n = name ? "1F3B2C" : Clr.Panel)
+        for n, t in Center.Nav {
+            Ui.Paint(t, n = name ? Clr.Green : Clr.Dim, n = name ? Clr.Sel : Clr.Panel)
+            Ui.Paint(Center.NavBar[n], Clr.Green, n = name ? Clr.Green : Clr.Panel)
+        }
         Cfg.Set("ui.page", name)
         Center.RefreshPage()
     }
@@ -2210,6 +2261,7 @@ class Center {
             case "OPERATORS": Center.RefreshOps()
             case "LOADOUTS": Center.RefreshLoadouts()
             case "CALIBRATION": Center.RefreshCalib()
+            case "RECOIL": Center.RefreshRec()
             case "HUD": Center.RefreshHud()
             case "SETTINGS": Center.RefreshSettings()
             case "HOTKEYS": Center.RefreshHotkeys()
@@ -2223,35 +2275,37 @@ class Center {
     static BuildHome(g) {
         add := Center.Reg.Bind(Center, "HOME")
         c := Center.Ctl
-        Center.Card(add, g, 196, 76, 244, 112, "CONNECTION")
-        c["h_conn"] := add(Ui.Txt(g, 210, 100, 216, 26, "", 12, "Bold", Clr.Green, Clr.Panel))
-        c["h_c1"] := add(Ui.Txt(g, 210, 130, 216, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["h_c2"] := add(Ui.Txt(g, 210, 148, 216, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["h_c3"] := add(Ui.Txt(g, 210, 166, 216, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        Center.Card(add, g, 456, 76, 244, 112, "OPERATOR")
-        c["h_side"] := add(Ui.Txt(g, 470, 100, 216, 18, "", 9, "Bold", Clr.Dim, Clr.Panel))
-        c["h_op"] := add(Ui.Txt(g, 470, 120, 216, 32, "", 16, "Bold", Clr.Text, Clr.Panel))
-        c["h_lo"] := add(Ui.Txt(g, 470, 156, 216, 22, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        Center.Card(add, g, 716, 76, 244, 112, "CALIBRATION")
-        c["h_cal1"] := add(Ui.Txt(g, 730, 104, 216, 20, "", 10, "Bold", Clr.Text, Clr.Panel))
-        c["h_cal2"] := add(Ui.Txt(g, 730, 128, 216, 20, "", 10, "Bold", Clr.Text, Clr.Panel))
-        c["h_cal3"] := add(Ui.Txt(g, 730, 156, 216, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        Center.Card(add, g, 196, 204, 764, 150, "LOADOUT")
-        c["h_p1"] := add(Ui.Txt(g, 210, 232, 400, 26, "", 13, "Bold", Clr.Text, Clr.Panel))
-        c["h_p2"] := add(Ui.Txt(g, 232, 258, 500, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["h_s1"] := add(Ui.Txt(g, 210, 290, 400, 26, "", 13, "Bold", Clr.Text, Clr.Panel))
-        c["h_s2"] := add(Ui.Txt(g, 232, 316, 500, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["h_r1"] := add(Ui.Txt(g, 700, 232, 246, 22, "", 9, "Bold", Clr.Dim, Clr.Panel, "Right"))
-        c["h_r2"] := add(Ui.Txt(g, 700, 256, 246, 22, "", 9, "Norm", Clr.Dim, Clr.Panel, "Right"))
-        Center.Card(add, g, 196, 370, 374, 254, "RECENT CHANGES")
-        c["h_recent"] := add(Ui.List(g, 208, 396, 350, 216, ["When", "What"]))
+        ; live module chips (states straight from the Lua)
+        for i, ch in Center.ChipDefs
+            Center.Chips.Push(add(Ui.Txt(g, 196 + (i - 1) * 128, 76, 122, 28, "", 8, "Bold", Clr.Dim, Clr.Panel2, "Center")))
+        Center.Card(add, g, 196, 116, 244, 112, "CONNECTION")
+        c["h_conn"] := add(Ui.Txt(g, 210, 142, 216, 26, "", 12, "Bold", Clr.Green, Clr.Panel))
+        c["h_c1"] := add(Ui.Txt(g, 210, 172, 216, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        c["h_c2"] := add(Ui.Txt(g, 210, 190, 216, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        c["h_c3"] := add(Ui.Txt(g, 210, 208, 216, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        Center.Card(add, g, 456, 116, 244, 112, "OPERATOR")
+        c["h_side"] := add(Ui.Txt(g, 470, 142, 216, 18, "", 9, "Bold", Clr.Dim, Clr.Panel))
+        c["h_op"] := add(Ui.Txt(g, 470, 162, 216, 34, "", 18, "Bold", Clr.Text, Clr.Panel))
+        c["h_lo"] := add(Ui.Txt(g, 470, 200, 216, 22, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        Center.Card(add, g, 716, 116, 244, 112, "CALIBRATION")
+        c["h_cal1"] := add(Ui.Txt(g, 730, 144, 216, 20, "", 10, "Bold", Clr.Text, Clr.Panel))
+        c["h_cal2"] := add(Ui.Txt(g, 730, 168, 216, 20, "", 10, "Bold", Clr.Text, Clr.Panel))
+        c["h_cal3"] := add(Ui.Txt(g, 730, 198, 216, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        Center.Card(add, g, 196, 244, 764, 150, "LOADOUT")
+        c["h_p1"] := add(Ui.Txt(g, 210, 272, 420, 28, "", 14, "Bold", Clr.Text, Clr.Panel))
+        c["h_p2"] := add(Ui.Txt(g, 232, 300, 500, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        c["h_s1"] := add(Ui.Txt(g, 210, 330, 420, 28, "", 14, "Bold", Clr.Text, Clr.Panel))
+        c["h_s2"] := add(Ui.Txt(g, 232, 358, 500, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        c["h_r1"] := add(Ui.Txt(g, 700, 272, 246, 22, "", 9, "Bold", Clr.Dim, Clr.Panel, "Right"))
+        c["h_r2"] := add(Ui.Txt(g, 700, 296, 246, 22, "", 9, "Norm", Clr.Dim, Clr.Panel, "Right"))
+        Center.Card(add, g, 196, 410, 374, 214, "RECENT CHANGES")
+        c["h_recent"] := add(Ui.List(g, 208, 438, 350, 176, ["When", "What"]))
         c["h_recent"].ModifyCol(1, Ui.S(70)), c["h_recent"].ModifyCol(2, Ui.S(266))
-        Center.Card(add, g, 586, 370, 374, 254, "QUICK ACTIONS")
-        add(Ui.Btn(g, 600, 398, 346, 32, "COPY FULL LUA SCRIPT + MY CONFIG", () => Center.CopyBlock(), "p"))
-        add(Ui.Btn(g, 600, 436, 346, 32, "TEST GRID DETECTION", () => Center.StartTest()))
-        add(Ui.Btn(g, 600, 474, 346, 32, "COPY DIAGNOSTIC REPORT", () => Center.CopyReport()))
-        add(Ui.Btn(g, 600, 512, 346, 32, "RUN SETUP WIZARD", () => Wizard.Start()))
-        c["h_sync"] := add(Ui.Txt(g, 600, 554, 346, 60, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        Center.Card(add, g, 586, 410, 374, 214, "QUICK ACTIONS")
+        add(Ui.Btn(g, 600, 438, 346, 32, "COPY FULL LUA SCRIPT + MY CONFIG", () => Center.CopyBlock(), "p"))
+        add(Ui.Btn(g, 600, 474, 346, 32, "RECORD MY RECOIL", () => Center.OpenPage("RECOIL")))
+        add(Ui.Btn(g, 600, 510, 346, 32, "COPY DIAGNOSTIC REPORT", () => Center.CopyReport()))
+        c["h_sync"] := add(Ui.Txt(g, 600, 550, 346, 66, "", 9, "Norm", Clr.Dim, Clr.Panel))
         c["h_sync"].Opt("-0x200 -0x4000")
     }
 
@@ -2259,6 +2313,15 @@ class Center {
         c := Center.Ctl
         st := Live.Status
         ok := (st = "CONNECTED" || st = "IDLE")
+        ; module chips: green ENABLED, amber ACTIVE/UNAVAILABLE, red DISABLED, grey UNKNOWN
+        for i, ch in Center.ChipDefs {
+            ms := Live.Data.Has(ch[2]) ? Live.Data[ch[2]] : ""
+            bb := Live.Burst
+            if (ms = "ENABLED" && bb["active"] && ((i = 1 && bb["recoil"]) || (i = 2 && bb["rapid"])))
+                ms := "ACTIVE"
+            SetText(Center.Chips[i], "● " ch[1])
+            Ui.Paint(Center.Chips[i], ms = "ENABLED" ? Clr.Green : ms = "ACTIVE" ? Clr.Amber : ms = "UNAVAILABLE" ? Clr.Amber : ms = "DISABLED" ? Clr.Red : Clr.Mute)
+        }
         SetText(c["h_conn"], st = "CONNECTED" ? "● CONNECTED" : st = "IDLE" ? "● CONNECTED (idle)" : st = "LOST" ? "● SIGNAL LOST"
             : st = "MISMATCH" ? "● PROTOCOL MISMATCH" : "● WAITING")
         Ui.Paint(c["h_conn"], ok ? Clr.Green : st = "LOST" ? Clr.Red : Clr.Amber)
@@ -2965,7 +3028,114 @@ class Center {
             Ui.Paint(Center.Cells[Center.Lit], Clr.Dim, Clr.Panel2)
         Center.Lit := idx
         if (idx >= 1 && idx <= Center.Cells.Length)
-            Ui.Paint(Center.Cells[idx], Clr.Green, "1F3B2C")
+            Ui.Paint(Center.Cells[idx], Clr.Green, Clr.Sel)
+    }
+
+
+    ; ==========================================================================
+    ; RECOIL  (records how YOU control recoil and turns it into a per-weapon profile)
+    ; ==========================================================================
+    static BuildRecoil(g) {
+        add := Center.Reg.Bind(Center, "RECOIL")
+        c := Center.Ctl
+        c["r_toggle"] := add(Ui.Btn(g, 196, 76, 250, 46, "● RECORD MY RECOIL:  OFF", () => Recorder.Toggle(), "p"))
+        c["r_state"] := add(Ui.Txt(g, 462, 76, 498, 46, "", 10, "Norm", Clr.Dim))
+        c["r_state"].Opt("-0x200 -0x4000")
+        Center.Card(add, g, 196, 136, 372, 112, "WEAPON BEING RECORDED")
+        c["r_key"] := add(Ui.Txt(g, 210, 162, 344, 30, "", 15, "Bold", Clr.Text, Clr.Panel))
+        c["r_key2"] := add(Ui.Txt(g, 210, 194, 344, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        c["r_prof"] := add(Ui.Txt(g, 210, 216, 344, 20, "", 9, "Bold", Clr.Dim, Clr.Panel))
+        Center.Card(add, g, 584, 136, 376, 112, "THIS SESSION")
+        c["r_cnt"] := add(Ui.Txt(g, 598, 162, 348, 26, "", 13, "Bold", Clr.Text, Clr.Panel))
+        c["r_last"] := add(Ui.Txt(g, 598, 190, 348, 20, "", 8, "Norm", Clr.Dim, Clr.Panel))
+        c["r_msg"] := add(Ui.Txt(g, 598, 212, 348, 30, "", 8, "Norm", Clr.Mute, Clr.Panel))
+        c["r_msg"].Opt("-0x200 -0x4000")
+        Center.Card(add, g, 196, 262, 764, 138, "YOUR PULL OVER THE SPRAY  (average of the recorded bursts)")
+        c["r_c1"] := add(Ui.Mono(g, 212, 294, 732, 24, "", 14, Clr.Green, Clr.Panel))
+        c["r_c2"] := add(Ui.Mono(g, 212, 320, 732, 18, "", 8, Clr.Mute, Clr.Panel))
+        c["r_c3"] := add(Ui.Txt(g, 212, 346, 732, 22, "", 11, "Bold", Clr.Text, Clr.Panel))
+        c["r_c4"] := add(Ui.Txt(g, 212, 370, 732, 20, "", 8, "Norm", Clr.Dim, Clr.Panel))
+        add(Ui.Btn(g, 196, 412, 200, 34, "USE THIS PROFILE NOW", () => Center.RecApply(), "p"))
+        add(Ui.Btn(g, 404, 412, 200, 34, "COPY LUA SCRIPT", () => Center.CopyBlock()))
+        add(Ui.Btn(g, 612, 412, 250, 34, "FORGET THIS WEAPON'S DATA", () => Center.RecForget(), "d"))
+        add(Ui.Txt(g, 196, 458, 300, 16, "LEARNED PROFILES", 8, "Bold", Clr.Mute))
+        c["r_list"] := add(Ui.List(g, 196, 476, 764, 148, ["Loadout", "Bursts", "r", "y1", "y2", "side", "Updated"]))
+        for i, w in [300, 70, 70, 70, 70, 70, 114]
+            c["r_list"].ModifyCol(i, Ui.S(w))
+    }
+
+    static RefreshRec() {
+        c := Center.Ctl
+        on := Recorder.On
+        SetText(c["r_toggle"], on ? "■ STOP RECORDING" : "● RECORD MY RECOIL:  OFF")
+        SetText(c["r_state"], on ? "Recording (F6 stops).  1) Turn the system OFF: RALT + MB5   2) Spray a wall by hand, full bursts   3) After 3 bursts the profile updates itself   4) Copy the Lua script to use it."
+            : "Learns how YOU pull the mouse during a spray, per weapon and loadout. Press the button or F6, then shoot by hand with the system OFF.")
+        key := Recorder.Key()
+        parts := key != "" ? StrSplit(key, ":") : []
+        SetText(c["r_key"], key != "" ? parts[1] : "no weapon yet")
+        SetText(c["r_key2"], key != "" ? parts[2] "  ·  " parts[3] "  ·  " StrUpper(Live.Slot()) : "")
+        pk := Live.Get("recoil_profile", "")
+        SetText(c["r_prof"], pk != "" ? "PROFILE IN USE:  " pk : "")
+        Ui.Paint(c["r_prof"], pk = "LEARNED" ? Clr.Green : Clr.Dim)
+        SetText(c["r_cnt"], Recorder.Kept " kept   ·   " Recorder.Dropped " discarded")
+        SetText(c["r_last"], Recorder.Last != "" ? Recorder.Last : "no burst recorded yet")
+        SetText(c["r_msg"], Recorder.Msg)
+        curve := key != "" ? Recorder.Curve(key) : Map("y", [], "x", [])
+        ys := curve["y"]
+        if (ys.Length) {
+            mx := 0
+            for v in ys
+                mx := Max(mx, v)
+            bars := "▁▂▃▄▅▆▇█", line := "", axis := ""
+            for i, v in ys {
+                line .= SubStr(bars, mx > 0 ? Clamp(Round(Max(v, 0) / mx * 7) + 1, 1, 8) : 1, 1)
+                axis .= (Mod(i, 5) = 0 ? Format("{:-5s}", Round(i / 10, 1) "s") : "")
+            }
+            SetText(c["r_c1"], line)
+            SetText(c["r_c2"], axis)
+        } else {
+            SetText(c["r_c1"], "")
+            SetText(c["r_c2"], "Not enough data yet: record at least 3 bursts of 0.5 s or more with this exact loadout.")
+        }
+        fit := key != "" ? Recorder.Fit(key) : ""
+        if IsObject(fit) {
+            SetText(c["r_c3"], Format("r {:.2f}     y1 {:+.2f}     y2 {:+.2f}     side {:+.2f}", fit["r"], fit["y1"], fit["y2"], fit["side"]))
+            applied := Cfg.Get("learned").Has(key)
+            SetText(c["r_c4"], "fitted from " fit["n"] " bursts  ·  reference units (800 dpi, 11/11), rescaled to your " Cfg.Get("game.dpi") " dpi / " Cfg.Get("game.sensH") "-" Cfg.Get("game.sensV") " by the Lua"
+                . (applied ? "  ·  saved in your config" : ""))
+        } else {
+            SetText(c["r_c3"], "")
+            SetText(c["r_c4"], "")
+        }
+        lv := c["r_list"]
+        lv.Delete()
+        for k, p in Cfg.Get("learned")
+            lv.Add("", k, p["n"], Round(p["r"], 2), Format("{:+.2f}", p["y1"]), Format("{:+.2f}", p["y2"]), Format("{:+.2f}", p["side"])
+                , p["t"] != "" ? FormatTime(p["t"], "MM-dd HH:mm") : "")
+    }
+
+    static RecApply() {
+        key := Recorder.Key()
+        fit := key != "" ? Recorder.Fit(key) : ""
+        if !IsObject(fit) {
+            Toast.Show("warn", "⚠ NOT ENOUGH DATA", "Record at least 3 bursts (0.5 s+) first", "", "")
+            return
+        }
+        Cfg.Data["learned"][key] := fit
+        Cfg.Dirty()
+        Toast.Show("ok", "✓ PROFILE SAVED", key, "Copy the Lua script to use it", "")
+        View.Changed()
+    }
+
+    static RecForget() {
+        key := Recorder.Key()
+        if (key = "")
+            return
+        if (MsgBox("Forget everything recorded for " key "?", "Recoil recorder", "YesNo Icon?") != "Yes")
+            return
+        Recorder.ForgetKey(key)
+        Toast.Show("info", "RECORDING DATA CLEARED", key, "", "")
+        View.Changed()
     }
 
     ; ==========================================================================
@@ -3290,7 +3460,8 @@ class Center {
         Ui.DarkTheme(c["d_text"], "Explorer")
         add(Ui.Btn(g, 196, 438, 220, 32, "COPY DIAGNOSTIC REPORT", () => Center.CopyReport(), "p"))
         add(Ui.Btn(g, 424, 438, 150, 32, "CLEAR LOG", () => (Diag.Lines := [], Center.RefreshDiag())))
-        add(Ui.Txt(g, 586, 442, 374, 24, "Report contains no paths or personal data.", 8, "Norm", Clr.Mute))
+        add(Ui.Btn(g, 582, 438, 200, 32, "RUN SETUP WIZARD", () => Wizard.Start()))
+        add(Ui.Txt(g, 792, 442, 168, 24, "Report has no personal data.", 8, "Norm", Clr.Mute))
         add(Ui.Txt(g, 196, 480, 300, 16, "EVENT LOG", 8, "Bold", Clr.Mute))
         c["d_log"] := add(Ui.List(g, 196, 498, 764, 126, ["Log"]))
         c["d_log"].ModifyCol(1, Ui.S(740))
@@ -3546,10 +3717,10 @@ class Hk {
         ["SYSTEM", "toggleSystem", "System on/off", "ralt", 5], ["SYSTEM", "toggleDebug", "Debug on/off", "ralt", 4],
         ["SYSTEM", "redraw", "Redraw / resend state", "ralt", 1], ["SYSTEM", "toggleRecoilTune", "Recoil tune on/off", "lshift", 1]
     ]
-    static AhkDefaults := Map("mode", "F8", "visible", "F9", "capture", "F7", "profiles", "F10")
+    static AhkDefaults := Map("mode", "F8", "visible", "F9", "capture", "F7", "profiles", "F10", "record", "F6")
     static AhkLabels := Map("mode", "Compact HUD / Control centre", "visible", "Show / hide everything"
-        , "capture", "Capture calibration point", "profiles", "Copy tuned recoil profiles")
-    static AhkGroups := Map("mode", "HUD", "visible", "HUD", "capture", "CALIBRATION", "profiles", "SYSTEM")
+        , "capture", "Capture calibration point", "profiles", "Copy tuned recoil profiles", "record", "Record my recoil on / off")
+    static AhkGroups := Map("mode", "HUD", "visible", "HUD", "capture", "CALIBRATION", "profiles", "SYSTEM", "record", "RECOIL")
     static Fn := Map()
 
     static Text(md, btn) => StrUpper(md) " + " Hk.Btns[btn]
@@ -3569,7 +3740,7 @@ class Hk {
             rows.Push(Map("group", d[1], "label", d[3], "text", Hk.Text(e[1], e[2]), "key", "lua:" d[2], "type", "lua"
                 , "id", d[2], "mod", e[1], "button", e[2], "custom", e[3]))
         }
-        for id in ["mode", "visible", "capture", "profiles"] {
+        for id in ["mode", "visible", "capture", "profiles", "record"] {
             k := Cfg.Get("hotkeys." id, Hk.AhkDefaults[id])
             rows.Push(Map("group", Hk.AhkGroups[id], "label", Hk.AhkLabels[id], "text", k, "key", "ahk:" id, "type", "ahk"
                 , "id", id, "value", k, "custom", k != Hk.AhkDefaults[id]))
@@ -3620,7 +3791,7 @@ class Hk {
 
     static RegisterAll() {
         Hk.Fn := Map("mode", (*) => View.ToggleMode(), "visible", (*) => View.ToggleVisible()
-            , "capture", (*) => Calib.Capture(), "profiles", (*) => Profiles.Copy())
+            , "capture", (*) => Calib.Capture(), "profiles", (*) => Profiles.Copy(), "record", (*) => Recorder.Toggle())
         for id, def in Hk.AhkDefaults {
             key := Cfg.Get("hotkeys." id, def)
             try Hotkey(key, Hk.Fn[id], "On")
@@ -3693,6 +3864,254 @@ class Profiles {
 }
 
 ; ------------------------------------------------------------------------------
+; 18b. RECOIL RECORDER  (learns YOUR manual recoil control)
+;   Reads raw mouse movement (Windows Raw Input, the same data mouse software sees) while you hold
+;   fire. It cannot see the game's own recoil - that would need screen or memory reading, which
+;   this project does not do. Instead it records how YOU pull the mouse down over the spray, averages
+;   several bursts, and fits the Lua's profile shape:  pull per 7 ms tick = r, then +y1 after tym1,
+;   +y2 after tym2, plus a sideways drift `side`. All numbers are stored in the Lua's REFERENCE units
+;   (800 dpi, sens 11/11) so the Lua rescales them to your dpi / sensitivity at runtime.
+;   A recording is only kept when the Lua reports that its macro was NOT moving the mouse (system
+;   OFF, or no profile) - otherwise the macro's own pull would be recorded and learned back.
+; ------------------------------------------------------------------------------
+class Recorder {
+    static On := false
+    static Gui := ""
+    static Buf := ""
+    static Freq := 0
+    static Fn := ""
+    static Cur := ""                ; burst being recorded: Map(t0, key, s[samples], macro)
+    static Kept := 0
+    static Dropped := 0
+    static Msg := "Recorder is off"
+    static Last := ""
+    static BucketMs := 100
+    static MaxB := 80
+    static RefDpi := 800
+    static RefH := 11
+    static RefV := 11
+    static Hdr := 8 + 2 * A_PtrSize          ; sizeof(RAWINPUTHEADER)
+
+    static Init() {
+        Recorder.Gui := Gui("+ToolWindow -Caption", "SPM raw input")     ; never shown: only receives WM_INPUT
+        Recorder.Buf := Buffer(64, 0)
+        DllCall("QueryPerformanceFrequency", "Int64*", &f := 0)
+        Recorder.Freq := f
+    }
+
+    static Now() {
+        DllCall("QueryPerformanceCounter", "Int64*", &c := 0)
+        return c * 1000 / Recorder.Freq
+    }
+
+    static Toggle() => Recorder.Set(!Recorder.On)
+
+    static Set(on) {
+        on := on ? true : false
+        if (on = Recorder.On)
+            return
+        if !IsObject(Recorder.Gui)
+            Recorder.Init()
+        if !Recorder.Reg(on) {
+            Toast.Show("error", "⚠ RECORDER", "Windows refused the raw-input registration", "", "")
+            return
+        }
+        if !IsObject(Recorder.Fn)
+            Recorder.Fn := ObjBindMethod(Recorder, "OnInput")
+        OnMessage(0x00FF, Recorder.Fn, on ? 1 : 0)                ; WM_INPUT
+        Recorder.On := on
+        Recorder.Cur := ""
+        Recorder.Msg := on ? "Recording. Fire full bursts by hand (system OFF: RALT + MB5)." : "Recorder is off"
+        Toast.Show(on ? "ok" : "info", on ? "● RECORDING MY RECOIL" : "RECORDER OFF", on ? "Turn the system OFF, then spray by hand" : "", "", "")
+        View.Changed()
+    }
+
+    ; RegisterRawInputDevices: generic mouse, RIDEV_INPUTSINK so it also works while Siege has focus.
+    static Reg(on) {
+        b := Buffer(8 + A_PtrSize, 0)
+        NumPut("UShort", 1, b, 0)
+        NumPut("UShort", 2, b, 2)
+        NumPut("UInt", on ? 0x100 : 0x1, b, 4)                ; RIDEV_INPUTSINK / RIDEV_REMOVE
+        NumPut("Ptr", on ? Recorder.Gui.Hwnd : 0, b, 8)
+        return DllCall("RegisterRawInputDevices", "Ptr", b, "UInt", 1, "UInt", 8 + A_PtrSize, "Int")
+    }
+
+    ; WM_INPUT handler: keep it small, it runs up to 1000 times a second.
+    static OnInput(wParam, lParam, msg, hwnd) {
+        size := 64
+        n := DllCall("GetRawInputData", "Ptr", lParam, "UInt", 0x10000003, "Ptr", Recorder.Buf, "UInt*", &size, "UInt", Recorder.Hdr, "UInt")
+        if (n = 0 || n = 0xFFFFFFFF)
+            return
+        if (NumGet(Recorder.Buf, 0, "UInt") != 0)                  ; RIM_TYPEMOUSE only
+            return
+        h := Recorder.Hdr
+        if (NumGet(Recorder.Buf, h, "UShort") & 1)                 ; absolute pointer device: ignore
+            return
+        bf := NumGet(Recorder.Buf, h + 4, "UShort")                ; RAWMOUSE.usButtonFlags
+        dx := NumGet(Recorder.Buf, h + 12, "Int")
+        dy := NumGet(Recorder.Buf, h + 16, "Int")
+        now := Recorder.Now()
+        if (bf & 1)                                           ; RI_MOUSE_LEFT_BUTTON_DOWN
+            Recorder.Down(now)
+        if (IsObject(Recorder.Cur) && (dx || dy))
+            Recorder.Cur["s"].Push([now - Recorder.Cur["t0"], dx, dy])
+        if (bf & 2)                                           ; RI_MOUSE_LEFT_BUTTON_UP
+            Recorder.Up(now)
+    }
+
+    ; "WEAPON:BARREL:GRIP" of the active slot, exactly like the Lua's RecoilKey.
+    static Key() {
+        w := Live.Get("weapon", "-")
+        if (w = "-" || w = "NONE")
+            return ""
+        b := Live.Get("barrel", "-"), g := Live.Get("grip", "-")
+        return w ":" (b = "-" ? "nil" : b) ":" (g = "-" ? "nil" : g)
+    }
+
+    static Down(now) {
+        if (!Recorder.On || IsObject(Recorder.Cur) || !Live.Fresh())
+            return
+        if !(SlotSync.Anywhere || SlotSync.SiegeActive())
+            return                                            ; only record while Siege is the active window
+        key := Recorder.Key()
+        if (key = "")
+            return
+        Recorder.Cur := Map("t0", now, "key", key, "s", [], "macro", Live.Burst["active"] ? 1 : 0)
+    }
+
+    static Up(now) {
+        if !IsObject(Recorder.Cur)
+            return
+        b := Recorder.Cur
+        Recorder.Cur := ""
+        dur := now - b["t0"]
+        if (b["macro"] || Live.Burst["active"]) {
+            Recorder.Drop("discarded: the macro was moving the mouse (turn the system OFF to record)")
+            return
+        }
+        if (dur < 500) {
+            Recorder.Drop("discarded: too short (" Round(dur) " ms) - hold fire at least 0.5 s")
+            return
+        }
+        Recorder.Add(b["key"], b["s"], dur)
+    }
+
+    static Drop(msg) {
+        Recorder.Dropped++
+        Recorder.Msg := msg
+        View.Changed()
+    }
+
+    ; Adds one burst to the aggregated data of this loadout and refits the profile.
+    static Add(key, samples, dur) {
+        bm := Recorder.BucketMs
+        nb := Min(Recorder.MaxB, Floor(dur / bm))                   ; whole buckets only
+        if (nb < 4) {
+            Recorder.Drop("discarded: too short")
+            return
+        }
+        sy := [], sx := []
+        loop nb
+            sy.Push(0), sx.Push(0)
+        for smp in samples {
+            i := Floor(smp[1] / bm) + 1
+            if (i <= nb)
+                sx[i] += smp[2], sy[i] += smp[3]
+        }
+        store := Cfg.Data["learnData"]
+        if !store.Has(key)
+            store[key] := Map("n", 0, "y", [], "x", [], "c", [], "t", "")
+        r := store[key]
+        loop nb {
+            if (r["y"].Length < A_Index)
+                r["y"].Push(0), r["x"].Push(0), r["c"].Push(0)
+            r["y"][A_Index] += sy[A_Index]
+            r["x"][A_Index] += sx[A_Index]
+            r["c"][A_Index] += 1
+        }
+        r["n"] += 1
+        r["t"] := A_Now
+        Recorder.Kept++
+        total := 0
+        for v in sy
+            total += v
+        Recorder.Last := key "  ·  " Round(dur / 1000, 1) " s  ·  pulled " total " counts down"
+        Recorder.Msg := "burst " r["n"] " recorded"
+        Cfg.Dirty()
+        fit := Recorder.Fit(key)
+        if IsObject(fit) {
+            Cfg.Data["learned"][key] := fit
+            Cfg.Dirty()
+            if (r["n"] = 3 || Mod(r["n"], 5) = 0)
+                Toast.Show("ok", "✓ RECOIL PROFILE UPDATED", key, r["n"] " bursts recorded", "Copy the Lua script to use it")
+        }
+        View.Changed()
+    }
+
+    ; Averages the recorded bursts of one loadout and fits the Lua profile. Returns a Map or "".
+    static Fit(key) {
+        store := Cfg.Data["learnData"]
+        if !store.Has(key)
+            return ""
+        r := store[key]
+        if (r["n"] < 3)
+            return ""
+        curve := Recorder.Curve(key)
+        ys := curve["y"], xs := curve["x"]
+        if (ys.Length < 4)
+            return ""
+        ; bucket 1 (0-100 ms) is your reaction time and is skipped:
+        ;   buckets 2-5 (100-500 ms) -> r,  6-9 (500-900 ms) -> r + y1,  10+ (900 ms+) -> r + y1 + y2
+        a := Recorder.Mean(ys, 2, 5)
+        b := ys.Length >= 9 ? Recorder.Mean(ys, 6, 9) : a
+        c := ys.Length >= 12 ? Recorder.Mean(ys, 10, ys.Length) : b
+        side := Recorder.Mean(xs, 2, xs.Length)
+        return Map("r", Round(Clamp(a, 0, 80), 3), "y1", Round(Clamp(b - a, -40, 40), 3), "y2", Round(Clamp(c - b, -40, 40), 3)
+            , "tym1", 500, "tym2", 900, "side", Round(Clamp(side, -20, 20), 3), "strength", 1, "late", 1
+            , "n", r["n"], "t", A_Now)
+    }
+
+    ; Mean pull per 7 ms tick for every 100 ms bucket, in the Lua's reference units (only buckets
+    ; that at least 3 bursts reached). Returns Map(y, x).
+    static Curve(key) {
+        out := Map("y", [], "x", [])
+        store := Cfg.Data["learnData"]
+        if !store.Has(key)
+            return out
+        r := store[key]
+        g := Cfg.Data["game"]
+        sy := (Recorder.RefDpi * Recorder.RefV) / (g["dpi"] * g["sensV"])       ; the Lua multiplies profiles by these
+        sx := (Recorder.RefDpi * Recorder.RefH) / (g["dpi"] * g["sensH"])
+        per := 7 / Recorder.BucketMs
+        loop r["y"].Length {
+            n := r["c"][A_Index]
+            if (n < 3)
+                break
+            out["y"].Push(r["y"][A_Index] / n * per / sy)
+            out["x"].Push(r["x"][A_Index] / n * per / sx)
+        }
+        return out
+    }
+
+    static Mean(arr, a, b) {
+        sum := 0, n := 0
+        loop b - a + 1 {
+            i := a + A_Index - 1
+            if (i > arr.Length)
+                break
+            sum += arr[i], n++
+        }
+        return n ? sum / n : 0
+    }
+
+    static ForgetKey(key) {
+        Cfg.Data["learnData"].Delete(key)
+        Cfg.Data["learned"].Delete(key)
+        Cfg.Dirty()
+    }
+}
+
+; ------------------------------------------------------------------------------
 ; 19. DIAGNOSTICS REPORT  (no paths, no user names, nothing private)
 ; ------------------------------------------------------------------------------
 class Diagnostics {
@@ -3756,6 +4175,7 @@ class Diagnostics {
             hint := "No LMB event received yet. Fire once; if this stays 0, G HUB is not sending clicks to this script."
         if (hint != "")
             t .= "  ⚠ " hint "`n"
+        t .= Format("{:-22s}{:-18s}{}", "  RECOIL RECORDER", Recorder.On ? "▶ ACTIVE" : "○ DISABLED", "kept " Recorder.Kept ", discarded " Recorder.Dropped "  (" Recorder.Msg ")") "`n"
         t .= Diagnostics.Mod("RECOIL TUNE", "m_tune", g("tune", "0") = "1" ? "step " g("tune_step", "?") " " g("tune_name", "") : "")
         t .= Diagnostics.Mod("DEBUG LOG", "m_debug")
         t .= Format("{:-22s}{:-18s}{}", "LOADOUT MANAGER", "✓ ENABLED", "loadout " g("loadout", "-") " (" g("loadout_n", "0") " saved), " g("fav_n", "?") " favourites") "`n"

@@ -1162,7 +1162,7 @@ end
 
 -- The exact line to paste into RECOIL_PROFILES for a profile (used by the console and the overlay).
 local function PasteLine(weapon, p)
-    return string.format("[\"%s\"] = { %sr = %d, x1 = %d, tm1 = %d, x2 = %d, tm2 = %d, y1 = %d, tym1 = %d, y2 = %d, tym2 = %d, strength = %.2f, side = %.1f, late = %.2f },",
+    return string.format("[\"%s\"] = { %sr = %g, x1 = %g, tm1 = %g, x2 = %g, tm2 = %g, y1 = %g, tym1 = %g, y2 = %g, tym2 = %g, strength = %.2f, side = %.2f, late = %.2f },",
         weapon,
         (p.operator and string.format("operator = \"%s\", ", p.operator) or "")
             .. (p.barrel and string.format("barrel = \"%s\", ", p.barrel) or ""),
@@ -2280,6 +2280,7 @@ local function ExportState()
     local profileKind = "NONE"
     if pf then
         if State.tune.starter[pk] then profileKind = "STARTER"
+        elseif pf.learned then profileKind = "LEARNED"
         elseif pf.est then profileKind = "ESTIMATED"
         elseif pk == RecoilKey(slot) then profileKind = "TUNED"
         else profileKind = "BUILT-IN" end
@@ -2539,6 +2540,7 @@ local function TuneAdjust(dir)
     local v = math.floor((cur + dir * f.step * mult) * 100 + 0.5) / 100
     p[f.key] = math.max(f.min, v)
     p.est = nil                     -- you've tuned it: no longer just an estimate
+    p.learned = nil
     State.tune.starter[key] = nil   -- ...and no longer a raw starter
     State.tune.touched[key] = true
     TuneRefresh()
@@ -3288,6 +3290,29 @@ local function ApplyUserConfig()
                 end
             else
                 bad("loadouts for " .. tostring(name))
+            end
+        end
+    end
+
+    -- profiles learned by the companion from the user's own manual recoil control (exact loadout keys)
+    if tbl(u.recoil) then
+        local function rng(v, lo, hi, def)
+            if type(v) ~= "number" or v ~= v then return def end
+            return math.max(lo, math.min(hi, v))
+        end
+        for key, pr in pairs(u.recoil) do
+            local weapon = type(key) == "string" and key:match("^([^:]+)") or nil
+            if weapon and WEAPONS[weapon] and tbl(pr) and type(pr.r) == "number" then
+                RECOIL_PROFILES[key] = {
+                    learned = true,
+                    r = rng(pr.r, 0, 80, 8), x1 = 0, tm1 = 0, x2 = 0, tm2 = 0,
+                    y1 = rng(pr.y1, -40, 40, 0), tym1 = rng(pr.tym1, 0, 5000, 500),
+                    y2 = rng(pr.y2, -40, 40, 0), tym2 = rng(pr.tym2, 0, 8000, 900),
+                    strength = rng(pr.strength, 0.1, 10, 1), side = rng(pr.side, -20, 20, 0),
+                    late = rng(pr.late, 0, 10, 1),
+                }
+            else
+                bad("learned profile " .. tostring(key))
             end
         end
     end
