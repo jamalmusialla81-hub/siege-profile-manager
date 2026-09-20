@@ -3399,12 +3399,18 @@ class Calib {
     }
 
     static SetTesting(on) {
-        Calib.Testing := on ? true : false
+        on := on ? true : false
+        if (on = Calib.Testing && IsObject(Calib.Fn))
+            return                              ; no change (the wizard calls this on every step)
+        Calib.Testing := on
         if !IsObject(Calib.Fn)
             Calib.Fn := ObjBindMethod(Calib, "Tick")
-        SetTimer(Calib.Fn, Calib.Testing ? 60 : "Off")
-        if !Calib.Testing
+        if on
+            SetTimer(Calib.Fn, 60)
+        else {
+            SetTimer(Calib.Fn, 0)               ; period 0 deletes the timer in AHK v2
             Calib.Live := Map()
+        }
         View.Changed()
     }
 
