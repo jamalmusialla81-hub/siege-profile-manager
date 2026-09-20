@@ -3,9 +3,6 @@
 A Logitech G HUB Lua script (`siege_profile_manager.lua`) plus an AutoHotkey v2 overlay
 (`SiegeOverlay.ahk`) for Rainbow Six Siege.
 
-> **Keep this repository private and use it for training-range / offline testing only.**
-> The recoil part is an anti-recoil macro. Using it online breaks Siege's rules and can get an
-> account banned.
 
 ## Files
 
