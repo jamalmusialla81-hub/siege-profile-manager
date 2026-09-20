@@ -50,8 +50,9 @@ local CONFIG = {
     -- and a weapon with no grip slot ends up with NONE.
     attachments = {
         preferred = {
-            barrel = { "COMPENSATOR", "SUPPRESSOR", "FLASH HIDER", "MUZZLE BRAKE",
-                       "EXTENDED BARREL", "NONE" },   -- compensator first: the recoil macro needs it
+            -- Standard loadout: suppressor + horizontal grip wherever the weapon offers them.
+            barrel = { "SUPPRESSOR", "COMPENSATOR", "FLASH HIDER", "MUZZLE BRAKE",
+                       "EXTENDED BARREL", "NONE" },
             grip   = { "HORIZONTAL", "VERTICAL", "ANGLED", "NONE" },
             scope  = {},   -- empty = the first scope listed for the weapon
         },
