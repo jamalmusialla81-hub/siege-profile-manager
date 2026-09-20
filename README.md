@@ -47,6 +47,17 @@ Right/middle click are event numbers 2 and 3 (`OnEvent` numbering).
 | `1` / `2` (in Siege) | Overlay switches the manager to primary / secondary (via ScrollLock) |
 | `F8` / `F9` / `F10` | Overlay: hotkey list / show-hide / copy tuned profiles |
 
+## Recoil estimates, jitter and rapid fire
+
+- **Estimated profiles:** every weapon has a starting pull profile built from its fire rate and a
+  per-shot kick (section 5c of the Lua). They are estimates: tune any gun with the tune mode, or
+  scale them all with `CONFIG.recoil.estimateGain`.
+- **Jitter:** `CONFIG.recoil.jitter` adds random, human-like variation (per-burst strength and
+  lean, slow wander, short wobble episodes, rare slips). `amount = 0` turns it off.
+- **Rapid fire:** on semi-auto weapons (DMRs, pistols, semi/pump shotguns), holding fire spams
+  clicks with random timing, capped at the weapon's fire rate. Settings in `CONFIG.rapidFire`.
+- **Attachments:** vertical grip and flash hider reduce the pull by 20% (`CONFIG.recoil.attMult`).
+
 ## Recoil tuning (training range)
 
 1. Pick the exact loadout (barrel and grip must match the game: `LSHIFT+MB4`, `LALT+LMB`).

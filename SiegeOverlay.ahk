@@ -96,8 +96,8 @@ class SiegeOverlay {
     static Width := 430
     static MarginTop := 24
     static MarginRight := 24
-    static Alpha := 230
-    static BaseH := 332            ; window height without the hotkey list (Layout() updates it)
+    static Alpha := 235
+    static BaseH := 362            ; window height without the hotkey list (Layout() updates it)
     static Expanded := false
     static Visible := true
     static LastRaw := ""
@@ -109,50 +109,54 @@ class SiegeOverlay {
         this.Gui := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 +E0x08000000", "Siege Profile Manager")
         this.Gui.MarginX := 0
         this.Gui.MarginY := 0
-        this.Gui.BackColor := "17191D"
+        this.Gui.BackColor := "14161A"
 
+        this.Accent := this.Gui.AddText("x0 y0 w430 h3 Background3DDC84", "")
         this.Gui.SetFont("s10 Bold cE8E8E8", "Segoe UI")
         this.Title := this.Gui.AddText("x16 y12 w250 h24 +0x200", "SIEGE PROFILE MANAGER")
-        this.Status := this.Gui.AddText("x270 y12 w74 h24 Right +0x200", "--")
+        this.Status := this.Gui.AddText("x314 y12 w100 h24 Right +0x200", "--")
+        this.Gui.AddText("x16 y38 w398 h1 Background2A2E35", "")
 
         this.Gui.SetFont("s12 Bold cFFFFFF", "Segoe UI")
-        this.Head := this.Gui.AddText("x16 y42 w398 h26 +0x200 +0x4000", "")
+        this.Head := this.Gui.AddText("x16 y46 w398 h26 +0x200 +0x4000", "")
 
         ; Equipped loadout: one weapon row + one attachment row per slot
         this.Gui.SetFont("s10 Bold cE8E8E8", "Segoe UI")
-        this.PrimW := this.Gui.AddText("x16 y74 w398 h20 +0x200 +0x4000", "")
+        this.PrimW := this.Gui.AddText("x16 y78 w398 h20 +0x200 +0x4000", "")
         this.Gui.SetFont("s9 Norm cA9ADB5", "Segoe UI")
-        this.PrimA := this.Gui.AddText("x16 y94 w398 h18 +0x200 +0x4000", "")
+        this.PrimA := this.Gui.AddText("x16 y98 w398 h18 +0x200 +0x4000", "")
         this.Gui.SetFont("s10 Bold cE8E8E8", "Segoe UI")
-        this.SecW := this.Gui.AddText("x16 y118 w398 h20 +0x200 +0x4000", "")
+        this.SecW := this.Gui.AddText("x16 y122 w398 h20 +0x200 +0x4000", "")
         this.Gui.SetFont("s9 Norm cA9ADB5", "Segoe UI")
-        this.SecA := this.Gui.AddText("x16 y138 w398 h18 +0x200 +0x4000", "")
+        this.SecA := this.Gui.AddText("x16 y142 w398 h18 +0x200 +0x4000", "")
+        this.Gui.AddText("x16 y168 w398 h1 Background2A2E35", "")
 
         this.Gui.SetFont("s9 cE8E8E8", "Segoe UI")
-        this.Profile := this.Gui.AddText("x16 y166 w398 h20 +0x200 +0x4000", "")
-        this.Calib := this.Gui.AddText("x16 y186 w398 h20 +0x200 +0x4000", "")
-        this.Recoil := this.Gui.AddText("x16 y206 w398 h20 +0x200 +0x4000", "")
-        this.Spray := this.Gui.AddText("x16 y226 w398 h20 +0x200 +0x4000", "")
+        this.Profile := this.Gui.AddText("x16 y176 w398 h20 +0x200 +0x4000", "")
+        this.Calib := this.Gui.AddText("x16 y196 w398 h20 +0x200 +0x4000", "")
+        this.Recoil := this.Gui.AddText("x16 y216 w398 h20 +0x200 +0x4000", "")
+        this.Fire := this.Gui.AddText("x16 y236 w398 h20 +0x200 +0x4000", "")
+        this.Spray := this.Gui.AddText("x16 y256 w398 h20 +0x200 +0x4000", "")
 
         ; "what do I do now" line: wraps to two lines
         this.Gui.SetFont("s9 Bold cFFD866", "Segoe UI")
-        this.Next := this.Gui.AddText("x16 y252 w398 h36", "")
+        this.Next := this.Gui.AddText("x16 y282 w398 h36", "")
 
         ; Guided recoil tuning panel (only visible while tuning)
         this.Gui.SetFont("s9 Bold cF0B429", "Segoe UI")
-        this.T1 := this.Gui.AddText("x16 y292 w398 h20 +0x200 +0x4000", "")
+        this.T1 := this.Gui.AddText("x16 y322 w398 h20 +0x200 +0x4000", "")
         this.Gui.SetFont("s9 Norm cE8E8E8", "Segoe UI")
-        this.T2 := this.Gui.AddText("x16 y312 w398 h20 +0x200 +0x4000", "")
+        this.T2 := this.Gui.AddText("x16 y342 w398 h20 +0x200 +0x4000", "")
         this.Gui.SetFont("s9 cA9ADB5", "Segoe UI")
-        this.T3 := this.Gui.AddText("x16 y332 w398 h20 +0x200 +0x4000", "")
+        this.T3 := this.Gui.AddText("x16 y362 w398 h20 +0x200 +0x4000", "")
 
         this.Gui.SetFont("s8 Norm cA9ADB5", "Segoe UI")
-        this.Link := this.Gui.AddText("x16 y292 w398 h16 +0x200 +0x4000", "")
-        this.Hint := this.Gui.AddText("x16 y308 w398 h16 +0x200", this.HintText)
+        this.Link := this.Gui.AddText("x16 y322 w398 h16 +0x200 +0x4000", "")
+        this.Hint := this.Gui.AddText("x16 y338 w398 h16 +0x200", this.HintText)
 
         ; Cheat sheet: monospace so the columns line up, brighter than the state rows
         this.Gui.SetFont("s9 cFFFFFF", "Consolas")
-        this.Hotkeys := this.Gui.AddText("x16 y336 w398 h420", this.HotkeyText())
+        this.Hotkeys := this.Gui.AddText("x16 y366 w398 h420", this.HotkeyText())
         this.Hotkeys.Visible := false
         for c in [this.T1, this.T2, this.T3]
             c.Visible := false
@@ -296,6 +300,7 @@ class SiegeOverlay {
         if !d.Linked {
             this.Status.Text := "--"
             this.Tint(this.Status, AMBER)
+            this.Accent.Opt("BackgroundF0B429")
             this.Head.Text := "WAITING FOR G HUB"
             this.PrimW.Text := "Press RALT + left click (redraw) once, or use"
             this.PrimA.Text := "any manager hotkey, so G HUB sends state."
@@ -305,6 +310,7 @@ class SiegeOverlay {
             this.Calib.Text := ""
             this.Recoil.Text := ""
             this.Spray.Text := ""
+            this.Fire.Text := ""
             this.Next.Text := ""
             this.Link.Text := !DbgListener.Ready ? "LINK: listener failed to start"
                 : (DbgListener.Shared ? "LINK: another debug monitor is running (close DebugView)"
@@ -315,7 +321,9 @@ class SiegeOverlay {
         }
 
         on := d.Get("enabled") = "1"
-        this.Status.Text := on ? "ON" : "OFF"
+        this.Status.Text := on ? "● ON" : "● OFF"
+        this.Accent.Opt("Background" (on ? GREEN : RED))
+        this.Accent.Redraw()
         this.Tint(this.Status, on ? GREEN : RED)
 
         this.Head.Text := d.Get("side") "  •  " d.Get("operator")
@@ -348,16 +356,18 @@ class SiegeOverlay {
         }
 
         profile := d.Get("profile")
-        this.Profile.Text := "RECOIL PROF " profile
+        this.Profile.Text := "PROFILE     " profile
         this.Tint(this.Profile, profile = "TUNED" ? GREEN : (SubStr(profile, 1, 3) = "N/A" ? GREY : AMBER))
 
         cal := d.Get("calibration")
-        this.Calib.Text := "GRID CAL    " cal
+        this.Calib.Text := "GRID        " cal
         this.Tint(this.Calib, SubStr(cal, 1, 10) = "CALIBRATED" ? GREEN
             : (SubStr(cal, 1, 6) = "ACTIVE" ? AMBER : GREY))
 
         recoil := d.Get("recoil")
         this.Recoil.Text := "RECOIL      " recoil
+        this.Fire.Text := "FIRE        " d.Get("fire", "-")
+        this.Tint(this.Fire, InStr(d.Get("fire", ""), "RAPID") ? GREEN : GREY)
         spray := d.Get("spray", "none yet (hold ADS + fire)")
         this.Spray.Text := "LAST SPRAY  " spray
         this.Tint(this.Spray, SubStr(spray, 1, 4) = "none" ? GREY : GREEN)
@@ -381,10 +391,10 @@ class SiegeOverlay {
         shift := tuning ? 66 : 0
         for c in [this.T1, this.T2, this.T3]
             c.Visible := tuning
-        this.Link.Move(16, 292 + shift)
-        this.Hint.Move(16, 308 + shift)
-        this.Hotkeys.Move(16, 336 + shift)
-        this.BaseH := 332 + shift
+        this.Link.Move(16, 322 + shift)
+        this.Hint.Move(16, 338 + shift)
+        this.Hotkeys.Move(16, 366 + shift)
+        this.BaseH := 362 + shift
         if this.Visible
             this.Gui.Move(, , this.Width, this.Height())
     }

@@ -4,6 +4,9 @@
     Vora recoil macro merged in (section 5b/14b): while ADS + firing, the
     selected operator's primary weapon applies its RECOIL_PROFILES pull-down.
     Operator selection, on/off (RALT+MB5) and loadout come from this manager.
+    Recoil: every weapon has an estimated profile (section 5c), the pull carries
+    random human-like jitter (CONFIG.recoil.jitter), and semi-auto weapons rapid-fire
+    while fire is held (CONFIG.rapidFire).
 
     DEFAULT CONTROLS (modifier + mouse button; edit CONFIG.input.keybinds)
       RSHIFT + Left click on operator tile ... auto-detect operator
@@ -149,9 +152,42 @@ local CONFIG = {
         -- Vora profiles were tuned for these settings; movement is rescaled so
         -- the in-game pull is the same at your dpi * sensitivity.
         reference     = { dpi = 800, horizontal = 11, vertical = 11 },
-        requireBarrel = "COMPENSATOR",   -- profile only applies with this barrel (nil = any)
+        requireBarrel = nil,             -- old Vora profiles only applied with this barrel; nil = any barrel
         secondary     = true,   -- recoil also works on the secondary weapon (e.g. SMG-12); false = primary only
         gain          = 1.0,             -- overall pull strength multiplier (tune mode edits this)
+        estimateGain  = 1.0,             -- multiplies ONLY the estimated profiles (section 5c); raise it if they under-pull
+        flatten       = 0.4,             -- 0..1: pull estimates toward one common per-shot kick (0 = keep class guesses)
+        commonKick    = 145,             -- that common per-shot kick (Type-89 / C8-SFW level)
+        -- Attachment effects on vertical recoil (community-table values: vertical grip and
+        -- flash hider each remove ~20%). Applied to estimated / Vora profiles only, not to
+        -- profiles you tuned for the exact loadout.
+        attMult = {
+            grip   = { VERTICAL = 0.8 },
+            barrel = { ["FLASH HIDER"] = 0.8 },
+        },
+
+        -- Human-like randomness so drills don't feel robotic. amount scales everything
+        -- (0 = perfectly clean pull, 1 = default, 2 = sloppy).
+        jitter = {
+            enabled = true,
+            amount  = 0.6,
+            spray   = 0.06,   -- whole spray pulls +/-6% harder or softer, re-rolled every burst
+            tick    = 0.12,   -- fast per-tick noise on the vertical pull (+/-12%)
+            sway    = 0.035,  -- slow wander of the vertical pull (like drifting over/under-control)
+            side    = 0.55,   -- sideways noise in counts per tick (at the reference sens)
+            hiccup  = 0.02,   -- chance per tick of a small extra kick / slip
+            lean    = 0.35,   -- each burst leans a random amount left or right (counts per tick)
+            episode = 0.025,  -- chance per tick of a short "wobble episode" (a brief over/under-pull + push)
+            loose   = 0.5,    -- 0..1: how much the noise strength itself changes from burst to burst
+        },
+    },
+
+    -- Semi-auto weapons (DMRs, pistols, semi/pump shotguns): holding fire spams clicks.
+    -- Hold time and gap are random inside these ranges (ms) so it is not a fixed metronome.
+    rapidFire = {
+        enabled = true,
+        downMs  = { 14, 28 },
+        upMs    = { 34, 62 },
     },
 
     -- Follows the weapon slot you pick in game with the 1 / 2 keys. G HUB Lua cannot see
@@ -227,9 +263,9 @@ local ACTION_ORDER = {
 
 local SYMBOLS = {
     unicode = { tl = "╔", tr = "╗", bl = "╚", br = "╝", h = "═", v = "║", ml = "╠", mr = "╣",
-                star = "★", check = "✓", cross = "✗", sel = ">", empty = "·", arrow = "→" },
+                star = "★", check = "✓", cross = "✗", sel = "►", empty = "·", arrow = "→", dot = "●", mid = "·", ptr = "▸" },
     ascii   = { tl = "+", tr = "+", bl = "+", br = "+", h = "=", v = "|", ml = "+", mr = "+",
-                star = "*", check = "+", cross = "x", sel = ">", empty = ".", arrow = "->" },
+                star = "*", check = "+", cross = "x", sel = ">", empty = ".", arrow = "->", dot = "*", mid = "-", ptr = ">" },
 }
 
 --=====================================================================
@@ -1124,6 +1160,105 @@ end
 -- (no `operator` key = usable by every operator that carries the weapon).
 local STARTER_PROFILE = { r = 8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1, tym1 = 500, y2 = 1, tym2 = 900 }
 
+-- Profiles from section 5c never overwrite an entry above; they are added to
+-- RECOIL_PROFILES (plain weapon key, `est = true`) by BuildEstimatedProfiles().
+local SEMI_AUTO = {}   -- weapon id -> fire-rate cap in rpm, for weapons where holding fire only shoots once
+
+--=====================================================================
+-- 5c. ESTIMATED RECOIL  (one row per weapon: { id, rpm, kick [, "semi"] })
+--   rpm  = rate of fire (for semi-auto weapons: the realistic click cap). Taken from
+--          a community recoil-script weapon table, so it matches the game.
+--   kick = vertical recoil per shot in counts at the REFERENCE settings (800 dpi,
+--          11 / 11), the same unit the Vora profiles use. Anchored to the Vora
+--          Type-89 (850 rpm, kick ~141) and C8-SFW (837 rpm, ~164), and
+--          scaled by weapon class from community recoil charts and hand
+--          measurements: SMGs low, 5.56 rifles mid, 7.62 / LMG high, DMRs and
+--          shotguns high per shot. Horizontal recoil is random per spray in
+--          Siege, so no sideways pull is estimated; the jitter covers it.
+--   pull per 7 ms tick = kick * rpm / 60 * 0.007, rescaled at runtime to your
+--   dpi * sensitivity. THESE ARE ESTIMATES: fine-tune any gun with the tune
+--   mode (LSHIFT + LMB), or scale them all with CONFIG.recoil.estimateGain.
+--=====================================================================
+local WEAPON_RECOIL = {
+    -- assault rifles / carbines
+    { "M4", 750, 145 },        { "L85A2", 670, 150 },     { "AR33", 749, 125 },
+    { "G36C", 780, 130 },      { "R4-C", 860, 135 },      { "556XI", 690, 140 },
+    { "F2", 980, 120 },        { "AK-12", 850, 155 },     { "AUG A2", 720, 125 },
+    { "552 COMMANDO", 690, 150 }, { "MK17 CQB", 585, 175 }, { "PARA-308", 650, 165 },
+    { "C7E", 800, 145 },       { "M762", 730, 175 },      { "XK23", 850, 135 },
+    { "SPEAR .308", 700, 165 }, { "AK-74M", 650, 155 },   { "ARX200", 700, 190 },
+    { "F90", 780, 130 },       { "SC3000K", 800, 140 },   { "416-C", 740, 130 },
+    { "V308", 700, 170 },      { "ALDA 5.56", 900, 120 }, { "K1A", 720, 100 },
+    { "PMR90A2", 750, 100 },   { "PCX-33", 745, 100 },    { "AUG A3", 700, 100 },
+    -- LMGs
+    { "M249", 650, 135 },      { "M249 SAW", 650, 135 },  { "6P41", 680, 135 },
+    { "G8A1", 850, 135 },      { "T-95 LSW", 650, 145 },  { "LMG-E", 720, 140 },
+    { "DP27", 550, 165 },
+    -- SMGs / machine pistols
+    { "PDW9", 800, 85 },       { "FMG-9", 800, 70 },      { "MP7", 900, 70 },
+    { "POF-9", 740, 80 },      { "UMP45", 600, 80 },      { "MP5", 800, 60 },
+    { "MP5K", 800, 62 },       { "P90", 970, 55 },        { "9X19VSN", 750, 65 },
+    { "MPX", 830, 65 },        { "M12", 550, 70 },        { "MP5SD", 800, 55 },
+    { "VECTOR .45 ACP", 1200, 55 }, { "SCORPION EVO 3 A1", 1080, 55 },
+    { "MX4 STORM", 950, 60 }, { "P10 RONI", 980, 75 },    { "UZK50GI", 700, 70 },
+    { "9MM C1", 575, 65 },     { "SPSMG9", 980, 65 },     { "SMG-12", 1270, 50 },
+    { "SMG-11", 1270, 45 },    { "BEARING 9", 1100, 55 },  { "C75 AUTO", 1000, 90 },
+    -- full-auto shotguns
+    { "FO-12", 400, 250 },     { "ACS12", 300, 240 },
+    -- DMRs (semi)
+    { "417", 430, 210, "semi" },     { "SR-25", 440, 210, "semi" },
+    { "MK 14 EBR", 440, 210, "semi" }, { "CAMRS", 420, 200, "semi" },
+    { "AR-15.50", 430, 190, "semi" },
+    -- semi-auto / pump shotguns
+    { "SASG-12", 340, 250, "semi" },  { "TCSG12", 490, 260, "semi" },
+    { "M1014", 215, 270, "semi" },    { "SPAS-15", 300, 260, "semi" },
+    { "SG-CQB", 85, 270, "semi" },   { "SIX12", 220, 250, "semi" },
+    { "SIX12 SD", 220, 250, "semi" }, { "ITA12L", 80, 280, "semi" },
+    { "BOSG.12.2", 600, 240, "semi" }, { "GLAIVE-12", 300, 260, "semi" },
+    { "SPAS-12", 220, 280, "semi" },  { "M870", 100, 300, "semi" },
+    { "SUPER 90", 220, 300, "semi" }, { "M590A1", 85, 300, "semi" },
+    { "SUPERNOVA", 85, 300, "semi" },
+    -- secondaries (all semi)
+    { "5.7 USG", 480, 120, "semi" },  { "ITA12S", 80, 250, "semi" },
+    { "REAPER MK2", 450, 110, "semi" }, { "P226 MK 25", 480, 110, "semi" },
+    { "M45 MEUSOC", 480, 130, "semi" }, { "P9", 480, 100, "semi" },
+    { "LFP586", 480, 200, "semi" },   { "PMM", 480, 110, "semi" },
+    { "GONNE-6", 200, 200, "semi" },  { "GSH-18", 480, 110, "semi" },
+    { "P12", 480, 110, "semi" },      { "MK1 9MM", 480, 100, "semi" },
+    { "PRB92", 480, 105, "semi" },    { "P229", 480, 110, "semi" },
+    { "USP40", 480, 115, "semi" },    { "Q-929", 480, 110, "semi" },
+    { "RG15", 480, 130, "semi" },     { "SUPER SHORTY", 100, 250, "semi" },
+    { "SDP 9MM", 480, 100, "semi" },  { "1911 TACOPS", 480, 130, "semi" },
+    { ".44 MAG SEMI-AUTO", 480, 180, "semi" }, { "D-50", 480, 190, "semi" },
+    { "BAILIFF 410", 500, 260, "semi" }, { ".44 VENDETTA", 480, 200, "semi" },
+    { "TACIT .45", 450, 120, "semi" }, { "P-10C", 480, 110, "semi" },
+    { "KERATOS .357", 480, 200, "semi" }, { "LUISON", 440, 110, "semi" },
+}
+
+local function BuildEstimatedProfiles()
+    local tickMs = CONFIG.recoil.tickMs
+    for _, w in ipairs(WEAPON_RECOIL) do
+        local id, rpm, kick, mode = w[1], w[2], w[3], w[4]
+        if mode == "semi" then SEMI_AUTO[id] = rpm end          -- value = fire-rate cap (rpm)
+        if not RECOIL_PROFILES[id] then
+            -- Community tables show recoil per shot is fairly even across guns (pull is mostly
+            -- fire rate), so pull each estimate part of the way toward one common value.
+            local f = CONFIG.recoil.flatten or 0
+            kick = kick * (1 - f) + (CONFIG.recoil.commonKick or 145) * f
+            local exact = kick * rpm / 60 * tickMs / 1000      -- counts per tick
+            local r = math.max(1, math.floor(exact + 0.5))
+            RECOIL_PROFILES[id] = {
+                est = true,
+                r = r, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0,
+                y1 = math.max(1, math.floor(exact * 0.12 + 0.5)), tym1 = 450,
+                y2 = math.max(1, math.floor(exact * 0.10 + 0.5)), tym2 = 900,
+                strength = math.floor(exact / r * CONFIG.recoil.estimateGain * 100 + 0.5) / 100,
+            }
+        end
+    end
+end
+BuildEstimatedProfiles()
+
 -- The three simple tune knobs. Every profile may carry them; missing = default.
 --   strength  multiplies the whole vertical pull
 --   side      constant sideways counts per tick (+ right, - left)
@@ -1773,15 +1908,31 @@ local function RecoilStatus()
         return "idle - needs " .. need .. " (have " .. tostring(slot.barrel) .. ", LSHIFT+MB4)"
     end
     return string.format("READY  %s%s", slot.weapon,
-        State.tune.starter[key] and "  (starter values, tune me)" or "")
+        State.tune.starter[key] and "  (starter values, tune me)" or (p.est and "  (estimated profile)" or ""))
 end
 
 -- What the recoil loop did during the last burst (shows the macro is alive).
 local function SprayText()
     local sp = State.spray
     if not sp then return "none yet (hold ADS + fire)" end
-    return string.format("%.1fs, %d ticks, pulled %d down, %d %s", sp.ms / 1000, sp.n, sp.y,
-        math.abs(sp.x), sp.x < 0 and "left" or "right")
+    return string.format("%.1fs, %d ticks, pulled %d down, %d %s%s", sp.ms / 1000, sp.n, sp.y,
+        math.abs(sp.x), sp.x < 0 and "left" or "right",
+        (sp.c and sp.c > 0) and (", " .. sp.c .. " clicks") or "")
+end
+
+-- Fire mode of the active weapon + jitter setting, one line.
+local function FireStatus()
+    local slot = ActiveWeaponSlot()
+    local S = Sym()
+    local j = CONFIG.recoil.jitter
+    local jt = (j and j.enabled and (j.amount or 1) > 0)
+        and string.format("jitter x%.1f", j.amount or 1) or "jitter off"
+    local mode = "full-auto (hold)"
+    if slot and slot.weapon and SEMI_AUTO[slot.weapon] then
+        mode = (CONFIG.rapidFire and CONFIG.rapidFire.enabled) and "RAPID FIRE (hold = spam clicks)"
+            or "semi-auto (rapid fire off)"
+    end
+    return mode .. "  " .. S.mid .. "  " .. jt
 end
 
 -- The single most useful thing to do right now, in plain words.
@@ -1814,7 +1965,10 @@ local function NextHint()
     if State.tune.starter[key] then
         return "Starter profile: tune it with " .. BindText(kb.toggleRecoilTune) .. " in the range"
     end
-    return "Ready. Hold ADS + fire. Keep the loadout above the same as your in-game one."
+    if p.est then
+        return "Estimated profile. Hold ADS + fire; tune: " .. BindText(kb.toggleRecoilTune)
+    end
+    return "Ready. Hold ADS + fire (keep the loadout above = your in-game one)"
 end
 
 local function BuildFrame()
@@ -1825,68 +1979,45 @@ local function BuildFrame()
     local function add(s) out[#out + 1] = s end
     local function rule(l, r) add(l .. string.rep(S.h, inner) .. r) end
     local function row(text) add(S.v .. " " .. PadRight(USub(text, textW), textW) .. " " .. S.v) end
-    local function kv(k, v) row(PadRight(k, 11) .. tostring(v)) end
+    local function kv(k, v) row("  " .. PadRight(k, 11) .. tostring(v)) end
 
     local op   = CurrentOperator()
     local slot = State.loadout[State.activeSlot]
     local spec, presetName = GetGridSpec()
 
+    local configured = IsConfigured(op)
     rule(S.tl, S.tr)
     row(Center("SIEGE PROFILE MANAGER", textW))
+    row(Center((State.enabled and (S.dot .. " ENABLED") or (S.cross .. " DISABLED"))
+        .. "   " .. S.mid .. "   " .. SIDE_LABEL[State.side]
+        .. "   " .. S.mid .. "   " .. (IsFavorite(op) and (S.star .. " ") or "") .. string.upper(op.name), textW))
     rule(S.ml, S.mr)
-    kv("SYSTEM", State.enabled and "[ ENABLED ]" or "[ DISABLED ]")
-    kv("SIDE", SIDE_LABEL[State.side])
-    kv("OPERATOR", (IsFavorite(op) and (S.star .. " ") or "") .. string.upper(op.name))
-    local configured = IsConfigured(op)
-    local profileId, profile, profileNote
     if configured then
-        local function slotText(kind)
-            if not HasWeapons(op, kind) then return "NONE" end
-            local s = State.loadout[kind]
-            return string.format("%s  (%s / %s / %s)", tostring(s.weapon), s.scope or "-",
-                s.barrel or "-", s.grip or "-")
+        for _, kind in ipairs(SLOT_KINDS) do
+            local isActive = (State.activeSlot == kind)
+            local label = string.upper(kind)
+            if not HasWeapons(op, kind) then
+                row((isActive and (S.sel .. " ") or "  ") .. PadRight(label, 11) .. "none")
+            else
+                local s2 = State.loadout[kind]
+                row((isActive and (S.sel .. " ") or "  ") .. PadRight(label, 11) .. PadRight(tostring(s2.weapon), 18)
+                    .. (s2.scope or "-") .. "  " .. S.mid .. "  " .. (s2.barrel or "-") .. "  " .. S.mid .. "  " .. (s2.grip or "-"))
+            end
         end
-        kv("PRIMARY", slotText("primary"))
-        kv("SECONDARY", slotText("secondary"))
-        kv("EDITING", string.upper(State.activeSlot) .. " - " .. tostring(slot.weapon))
-        kv("SCOPE", slot.scope or "-")
-        kv("BARREL", slot.barrel or "-")
-        kv("GRIP", slot.grip or "-")
-        profileId, profile, profileNote = ResolveProfile(op, slot)
-        kv("PROFILE", profileId)
-        kv("STATUS", ProfileStatusText(profile, profileNote))
     else
-        kv("LOADOUT", "NOT CONFIGURED")
-        kv("STATUS", "NOT CONFIGURED")
+        row("  LOADOUT    NOT CONFIGURED")
     end
-    kv("DPI", CONFIG.dpi)
-    kv("SENS", CONFIG.sensitivity.horizontal .. " / " .. CONFIG.sensitivity.vertical)
-    kv("ADS", GetADS(slot.scope))
-    kv("FOV", CONFIG.fov)
+    rule(S.ml, S.mr)
     kv("RECOIL", RecoilStatus())
-    kv("LAST SPRAY", SprayText())
-    kv("NEXT", NextHint())
-    if CONFIG.overlay.enabled then
-        kv("OVERLAY", State.exportOk and ("state sent #" .. tostring(State.exportSeq) .. " via OutputDebugMessage (SiegeOverlay.ahk listens)")
-            or "OutputDebugMessage() unavailable - overlay cannot receive state")
-    end
-    kv("SCREEN", string.format("%dx%d (%s)  grid: %s", CONFIG.resolution.width,
-        CONFIG.resolution.height, CONFIG.aspectRatio, presetName))
-
-    if not configured then
-        kv("REFERENCE", "n/a (loadout not configured)")
-    elseif profile then
-        local c = CompareProfiles(profile.reference, BuildUserProfile(slot.scope))
-        if c.exact then
-            kv("REFERENCE", "matches your current settings")
-        else
-            local function fmt(x) return x and string.format("x%.2f", x) or "n/a" end
-            kv("REFERENCE", string.format("eDPI H %s V %s | ADS %s | FOV %+d  (rough guide)",
-                fmt(c.h), fmt(c.v), fmt(c.ads), c.fovDelta))
-        end
-    else
-        kv("REFERENCE", "none stored for this exact combination")
-    end
+    kv("FIRE", FireStatus())
+    kv("SPRAY", SprayText())
+    kv("NEXT", S.ptr .. " " .. NextHint())
+    rule(S.ml, S.mr)
+    row(string.format("%d dpi  %s  sens %s / %s  %s  ADS %s  %s  FOV %s  %s  %dx%d  %s  grid %s%s",
+        CONFIG.dpi, S.mid, CONFIG.sensitivity.horizontal, CONFIG.sensitivity.vertical, S.mid,
+        tostring(GetADS(slot.scope)), S.mid, tostring(CONFIG.fov), S.mid,
+        CONFIG.resolution.width, CONFIG.resolution.height, S.mid, presetName,
+        ""))
 
     if State.tune.active then
         rule(S.ml, S.mr)
@@ -2046,6 +2177,7 @@ local function ExportState()
         { "profile", profileText },
         { "calibration", calText },
         { "recoil", RecoilStatus() },
+        { "fire", FireStatus() },
         { "next", NextHint() },
         { "spray", SprayText() },
         { "paste", (function()
@@ -2209,7 +2341,8 @@ local function TuneAdjust(dir)
     local mult = math.min(4, 1 + math.floor(t.streak / 3))
     local v = math.floor((cur + dir * f.step * mult) * 100 + 0.5) / 100
     p[f.key] = math.max(f.min, v)
-    State.tune.starter[key] = nil   -- you've tuned it: no longer a raw starter
+    p.est = nil                     -- you've tuned it: no longer just an estimate
+    State.tune.starter[key] = nil   -- ...and no longer a raw starter
     State.tune.touched[key] = true
     TuneRefresh()
 end
@@ -2367,11 +2500,16 @@ local function ActiveRecoilProfile()
     if not cfg.enabled or not State.enabled or State.calibration.active then return nil end
     if not RecoilSlotAllowed() then return nil end
     local slot, op = ActiveWeaponSlot(), CurrentOperator()
-    local p, _, exact = FindRecoilProfile(slot)
+    local p, k, exact = FindRecoilProfile(slot)
     if not p or (p.operator and p.operator ~= op.name) then return nil end
     local need = (not exact) and (p.barrel or cfg.requireBarrel) or nil
     if need and slot.barrel ~= need then return nil end
-    return p
+    -- a profile tuned for this exact loadout already includes the attachments
+    local mult = 1
+    if k ~= RecoilKey(slot) and cfg.attMult then
+        mult = ((cfg.attMult.grip or {})[slot.grip] or 1) * ((cfg.attMult.barrel or {})[slot.barrel] or 1)
+    end
+    return p, mult
 end
 
 -- Applies a change of the slot-sync lock key (set by SiegeOverlay.ahk on 1 / 2).
@@ -2394,43 +2532,130 @@ local function SyncSlotFromKeyboard()
     return false
 end
 
--- Blocks (like the original macro) while aim + fire are held.
+local function Rand(lo, hi)
+    return lo + math.random() * (hi - lo)
+end
+
+-- Roughly bell-shaped random number in -1..1: mostly small, sometimes large
+-- (sum of three uniforms), so the noise is not evenly spread like plain math.random().
+local function Gauss()
+    return (math.random() + math.random() + math.random()) * 2 / 3 - 1
+end
+
+-- Rapid fire applies to semi-auto weapons (SEMI_AUTO, section 5c).
+local function RapidWeaponActive()
+    local cfg = CONFIG.rapidFire
+    if not cfg or not cfg.enabled or not State.enabled or State.calibration.active then return false end
+    local slot = ActiveWeaponSlot()
+    return (slot and slot.weapon and SEMI_AUTO[slot.weapon]) and true or false
+end
+
+-- Blocks (like the original macro) while aim or fire is held:
+--   * ADS + fire  -> pull-down from the weapon's profile, with human-like jitter
+--   * fire        -> on semi-auto weapons, spams clicks with random timing (works hip-fire too)
 local function RunRecoil()
-    local cfg = CONFIG.recoil
-    local p = ActiveRecoilProfile()
-    if not p then return end
+    local cfg, rf = CONFIG.recoil, CONFIG.rapidFire
+    local p, attMul = ActiveRecoilProfile()
+    attMul = attMul or 1
+    local rapid = RapidWeaponActive()
+    if not p and not rapid then return end
+    local jc = cfg.jitter or {}
+    local jm = jc.enabled and (jc.amount or 1) or 0
     local ref = cfg.reference
     local sx = cfg.gain * (ref.dpi * ref.horizontal) / (CONFIG.dpi * CONFIG.sensitivity.horizontal)
     local sy = cfg.gain * (ref.dpi * ref.vertical)   / (CONFIG.dpi * CONFIG.sensitivity.vertical)
-    Debug("RECOIL", "%s scale %.3f/%.3f", tostring(ActiveWeaponSlot().weapon), sx, sy)
-    while IsMouseButtonPressed(cfg.aimButton) do
+    Debug("RECOIL", "%s scale %.3f/%.3f rapid=%s", tostring(ActiveWeaponSlot().weapon), sx, sy, tostring(rapid))
+    while IsMouseButtonPressed(cfg.aimButton) or IsMouseButtonPressed(cfg.fireButton) do
         if IsMouseButtonPressed(cfg.fireButton) then
             local start, remX, remY = GetRunningTime(), 0, 0
-            local sumX, sumY, ticks = 0, 0, 0
-            local strength, side, late = p.strength or 1, p.side or 0, p.late or 1
-            while IsMouseButtonPressed(cfg.fireButton) and IsMouseButtonPressed(cfg.aimButton) do
-                local t = GetRunningTime() - start
-                local mx, my = side, p.r
-                if t >= p.tm1 then
-                    mx = mx + p.x1
-                    if t >= p.tm2 then mx = mx + p.x2 end
-                end
-                if t >= p.tym1 then
-                    my = my + p.y1 * late
-                    if t >= p.tym2 then my = my + p.y2 * late end
-                end
-                my = my * strength
-                -- carry the fractional part so the rescale doesn't drift
-                local fx, fy = mx * sx + remX, my * sy + remY
-                local ix = fx >= 0 and math.floor(fx) or math.ceil(fx)
-                local iy = fy >= 0 and math.floor(fy) or math.ceil(fy)
-                remX, remY = fx - ix, fy - iy
-                MoveMouseRelative(ix, iy)
-                sumX, sumY, ticks = sumX + ix, sumY + iy, ticks + 1
-                Sleep(cfg.tickMs)
+            local sumX, sumY, ticks, clicks = 0, 0, 0, 0
+            local strength, side, late = 1, 0, 1
+            if p then strength, side, late = p.strength or 1, p.side or 0, p.late or 1 end
+            -- per-burst randomness: this spray pulls a little harder or softer than the last
+            local sprayMul = 1 + Rand(-(jc.spray or 0), jc.spray or 0) * jm
+            local sway, drift = 0, 0
+            -- this burst's own character: how noisy it is, how fast the wander moves, and a lean
+            local loose = jc.loose or 0
+            local noiseMul = jm * (1 + Rand(-loose, loose))
+            local swayKeep = Rand(0.88, 0.97)
+            local lean = Gauss() * (jc.lean or 0) * jm
+            local epLeft, epY, epX = 0, 1, 0        -- current wobble episode
+            -- the physical press that started the burst counts as the first click
+            local down, lastPress = true, start
+            local nextAt = start + (rapid and Rand(rf.downMs[1], rf.downMs[2]) or 0)
+            -- click no faster than the weapon can fire (its rpm cap), +0..12% random slack
+            local cycleMs = 0
+            if rapid then
+                local cap = SEMI_AUTO[ActiveWeaponSlot().weapon]
+                if type(cap) == "number" and cap > 0 then cycleMs = 60000 / cap end
             end
+            while IsMouseButtonPressed(cfg.fireButton) do
+                local now = GetRunningTime()
+                local t = now - start
+                if p and IsMouseButtonPressed(cfg.aimButton) then
+                    local mx, my = side, p.r
+                    if t >= p.tm1 then
+                        mx = mx + p.x1
+                        if t >= p.tm2 then mx = mx + p.x2 end
+                    end
+                    if t >= p.tym1 then
+                        my = my + p.y1 * late
+                        if t >= p.tym2 then my = my + p.y2 * late end
+                    end
+                    my = my * strength * sprayMul * attMul
+                    if jm > 0 then
+                        -- slow wander (over/under-control) + fast per-tick noise + a per-burst lean
+                        sway  = Clamp(sway * swayKeep + Gauss() * (jc.sway or 0) * noiseMul * 1.6, -0.3, 0.3)
+                        drift = drift * Rand(0.82, 0.95) + Gauss() * (jc.side or 0) * 0.9 * noiseMul
+                        my = my * (1 + sway + Gauss() * (jc.tick or 0) * noiseMul)
+                        mx = mx + lean + drift + Gauss() * (jc.side or 0) * noiseMul
+                        -- wobble episode: a few ticks of pulling too hard / too soft while nudging sideways
+                        if epLeft > 0 then
+                            epLeft = epLeft - 1
+                            my = my * epY
+                            mx = mx + epX
+                        elseif math.random() < (jc.episode or 0) * jm then
+                            epLeft = math.random(6, 28)
+                            epY = Rand(0.72, 1.3)
+                            epX = Gauss() * (jc.side or 0) * 2.2
+                        end
+                        -- rare one-tick slip
+                        if math.random() < (jc.hiccup or 0) * jm then
+                            my = my * (1 + Rand(-0.6, 1.0))
+                            mx = mx + Gauss() * (jc.side or 0) * 2
+                        end
+                    end
+                    -- carry the fractional part so the rescale doesn't drift
+                    local fx, fy = mx * sx + remX, my * sy + remY
+                    local ix = fx >= 0 and math.floor(fx) or math.ceil(fx)
+                    local iy = fy >= 0 and math.floor(fy) or math.ceil(fy)
+                    remX, remY = fx - ix, fy - iy
+                    MoveMouseRelative(ix, iy)
+                    sumX, sumY, ticks = sumX + ix, sumY + iy, ticks + 1
+                end
+                if rapid and now >= nextAt then
+                    if down then
+                        ReleaseMouseButton(cfg.fireButton)
+                        down = false
+                        local upMs = Rand(rf.upMs[1], rf.upMs[2])
+                        if cycleMs > 0 then
+                            upMs = math.max(upMs, cycleMs * Rand(1.0, 1.12) - (now - lastPress))
+                        end
+                        nextAt = now + upMs
+                    else
+                        PressMouseButton(cfg.fireButton)
+                        lastPress = now
+                        down = true
+                        clicks = clicks + 1
+                        nextAt = now + Rand(rf.downMs[1], rf.downMs[2])
+                    end
+                end
+                Sleep(math.max(1, cfg.tickMs + (jm > 0 and math.random(-2, 2) or 0)))
+            end
+            -- never leave the game thinking the button is held after we let go
+            if rapid then ReleaseMouseButton(cfg.fireButton) end
             -- proof for the overlay/console that the macro really fired, and how much it pulled
-            State.spray = { ms = GetRunningTime() - start, n = ticks, x = sumX, y = sumY }
+            State.spray = { ms = GetRunningTime() - start, n = ticks, x = sumX, y = sumY, c = clicks }
             Render()
         else
             Sleep(1)
@@ -2734,6 +2959,11 @@ local function ValidateGrids()
 end
 
 local function Init()
+    local seed = GetRunningTime()
+    local okT, tm = pcall(function() return os.time() end)
+    if okT and tm then seed = seed + tm end
+    math.randomseed(seed)
+    math.random() math.random()     -- discard the first values (poorly mixed on some Lua builds)
     BuildOperatorIndex()
     ValidateDatabase()
     BuildProfileIndex()
