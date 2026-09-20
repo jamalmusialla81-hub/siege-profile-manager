@@ -535,6 +535,31 @@ class LoadoutMgr {
 ; ------------------------------------------------------------------------------
 class Diag {
     static Lines := []
+    static LastError := ""
+    static ErrCount := 0
+    static LastToastMs := 0
+
+    ; Records an exception in full (message, line, call stack) instead of showing a modal error box.
+    ; The text appears under Diagnostics > LAST ERROR and in the copied report.
+    static Err(e, where := "") {
+        Diag.ErrCount++
+        stack := "", line := "?"
+        try stack := e.Stack
+        try line := e.Line
+        first := ""
+        loop parse stack, "`n", "`r" {
+            if (A_Index > 4)
+                break
+            first .= (A_Index > 1 ? " | " : "") Trim(A_LoopField)
+        }
+        Diag.LastError := (where != "" ? "[" where "] " : "") e.Message "  (line " line ")" (first != "" ? "  stack: " first : "")
+        Diag.Log("ERROR " Diag.LastError)
+        if (A_TickCount - Diag.LastToastMs > 5000) {              ; never spam
+            Diag.LastToastMs := A_TickCount
+            try Toast.Show("error", "⚠ INTERNAL ERROR", SubStr(e.Message, 1, 60), "line " line "  ·  see Diagnostics", "")
+        }
+    }
+
     static Log(msg) {
         Diag.Lines.Push(FormatTime(, "HH:mm:ss") "  " msg)
         while (Diag.Lines.Length > 120)
@@ -563,7 +588,7 @@ class Cfg {
         d := Map()
         d["version"] := App.CfgVersion
         d["game"] := Map("dpi", 1600, "sensH", 4, "sensV", 4, "fov", 84, "ads", 52
-            , "resW", A_ScreenWidth, "resH", A_ScreenHeight)
+            , "resW", A_ScreenWidth, "resH", A_ScreenHeight, "coordSpace", "")
         d["prefs"] := Map("scope", "AUTO", "barrel", "SUPPRESSOR", "grip", "HORIZONTAL")
         d["state"] := Map("side", "attackers", "operator", "")
         d["favorites"] := []
@@ -843,7 +868,7 @@ class Cfg {
                 c := data["calibration"].Has(side) ? data["calibration"][side] : ""
                 if (Type(c) = "Map" && Cfg.IsGeo(c))
                     out["calibration"][side] := Map("tlx", c["tlx"] + 0, "tly", c["tly"] + 0, "brx", c["brx"] + 0
-                        , "bry", c["bry"] + 0, "res", c.Get("res", ""))
+                        , "bry", c["bry"] + 0, "res", c.Get("res", ""), "src", c.Get("src", ""))
             }
         out["learned"] := Map()
         if (data.Has("learned") && Type(data["learned"]) = "Map")
@@ -1046,8 +1071,12 @@ class LuaBlock {
                 . ", strength = " LuaBlock.N(pr["strength"]) ", late = " LuaBlock.N(pr["late"]) " },`n"
         t .= "    },`n"
         t .= "    calibration = {`n"
-        for side, c in Cfg.Data["calibration"]
-            t .= "        " side " = { tlx = " LuaBlock.N(c["tlx"]) ", tly = " LuaBlock.N(c["tly"]) ", brx = " LuaBlock.N(c["brx"]) ", bry = " LuaBlock.N(c["bry"]) " },`n"
+        for side, c in Cfg.Data["calibration"] {
+            if Calib.Exportable(c)
+                t .= "        " side " = { tlx = " LuaBlock.N(c["tlx"]) ", tly = " LuaBlock.N(c["tly"]) ", brx = " LuaBlock.N(c["brx"]) ", bry = " LuaBlock.N(c["bry"]) " },`n"
+            else
+                t .= "        -- " side " grid held back: it was captured in this app and the coordinate space is not verified yet`n"
+        }
         t .= "    },`n"
         t .= "    keybinds = {`n"
         for act, b in Cfg.Data["luaKeybinds"]
@@ -1281,8 +1310,11 @@ class Live {
     static DbWarned := false
 
     static Poll() {
-        for line in DbgListener.Drain()
-            Live.Ingest(line)
+        for line in DbgListener.Drain() {
+            try Live.Ingest(line)
+            catch as e
+                Diag.Err(e, "packet")         ; one bad packet must never stop the others
+        }
     }
 
     static Ingest(line) {
@@ -1464,6 +1496,10 @@ class Sync {
         if !Cfg.Data["favInit"] && d.Has("favorites") {
             Cfg.FromLua(() => Sync.AdoptFavorites(d["favorites"]))
         }
+        for side3 in Db.Sides {
+            luaText := d.Get("cal_" side3, "-")
+            Cfg.FromLua(() => Calib.SetSrc(side3, luaText))
+        }
         ; grid overrides the Lua already has (e.g. calibrated in game before this script existed)
         for side2 in Db.Sides {
             key := "cal_" side2
@@ -1498,7 +1534,7 @@ class Sync {
         p := StrSplit(text, ",")
         if (p.Length = 4 && IsNumber(p[1]) && IsNumber(p[2]) && IsNumber(p[3]) && IsNumber(p[4]))
             Cfg.Data["calibration"][side] := Map("tlx", p[1] + 0, "tly", p[2] + 0, "brx", p[3] + 0, "bry", p[4] + 0
-                , "res", Cfg.Data["game"]["resW"] "x" Cfg.Data["game"]["resH"])
+                , "res", Cfg.Data["game"]["resW"] "x" Cfg.Data["game"]["resH"], "src", "lua")
         else
             return false
         return true
@@ -1539,6 +1575,8 @@ class Sync {
                 Calib.OnLuaFailed(e.Get("side", ""), e.Get("reason", ""))
             case "calibration_reset":
                 Calib.OnLuaReset(e.Get("side", ""))
+            case "detect_result":
+                Calib.OnLuaDetect(e)
             case "burst_start":
                 if IsObject(Recorder.Cur)
                     Recorder.Cur["macro"] := 1               ; the macro is moving the mouse: this recording is not "manual"
@@ -2937,7 +2975,8 @@ class Center {
         c["c_pts"] := add(Ui.Mono(g, 744, 186, 216, 52, "", 8, Clr.Dim, Clr.Bg))
         add(Ui.Btn(g, 744, 248, 216, 32, "START CALIBRATION", () => Calib.Start(Calib.Side), "p"))
         add(Ui.Btn(g, 744, 286, 216, 30, "CANCEL", () => Calib.Cancel()))
-        add(Ui.Btn(g, 744, 322, 216, 30, "RESET TO PRESET", () => Calib.ResetSide(Calib.Side), "d"))
+        add(Ui.Btn(g, 744, 322, 104, 30, "RESET THIS", () => Calib.ResetSide(Calib.Side), "d"))
+        add(Ui.Btn(g, 856, 322, 104, 30, "RESET BOTH", () => Calib.ResetBoth(), "d"))
         c["c_test"] := add(Ui.Btn(g, 744, 360, 216, 32, "TEST DETECTION: OFF", () => Calib.SetTesting(!Calib.Testing)))
         c["c_hint"] := add(Ui.Txt(g, 744, 400, 216, 34, "", 8, "Norm", Clr.Mute))
         c["c_hint"].Opt("-0x200 -0x4000")
@@ -2993,7 +3032,16 @@ class Center {
         ; what the Lua last detected
         ld := Calib.LastLua
         SetText(c["t6"], ld != "" ? StrUpper(ld) : "-")
-        SetText(c["t7"], "Click a tile in Siege with RSHIFT + left click. If both readings agree the grid is calibrated correctly.")
+        ll := Calib.LuaLast
+        if !ll.Count
+            SetText(c["t7"], "Click a tile in Siege with RSHIFT + left click. Both readings must agree.`nCoordinate space: " Calib.SpaceText())
+        else {
+            ahk := ll["ahkName"] != "" ? StrUpper(ll["ahkName"]) : (ll["ahkRow"] ? "an empty tile" : "outside the grid")
+            SetText(c["t7"], (ll["agree"] ? "✓ This app's grid agrees (row " ll["row"] ", col " ll["col"] ")"
+                : "✗ DISAGREE: the Lua says row " ll["row"] " col " ll["col"] ", this app's grid says " ahk "`nUse RESET BOTH, then copy the Lua script.")
+                . "`nCoordinate space: " Calib.SpaceText())
+            Ui.Paint(c["t7"], ll["agree"] ? Clr.Green : Clr.Amber)
+        }
     }
 
     ; Fast part of the page (mouse position, detection, highlighted cell) - runs from the test timer.
@@ -3564,7 +3612,8 @@ class Calib {
             return
         }
         MouseGetPos(&x, &y)
-        Calib.AddPoint(x / A_ScreenWidth, y / A_ScreenHeight)
+        n := Calib.Norm(x, y)
+        Calib.AddPoint(n[1], n[2])
     }
 
     static AddPoint(nx, ny) {
@@ -3587,14 +3636,104 @@ class Calib {
             return
         }
         Calib.Err := ""
-        Calib.Store(Calib.Side, a[1], a[2], b[1], b[2])
+        Calib.Store(Calib.Side, a[1], a[2], b[1], b[2], "ahk")
         Cfg.Dirty()
         Toast.Show("ok", "✓ CALIBRATION COMPLETE", Db.SideLabel(Calib.Side) " GRID", "Copy the Lua script to use it in game", "")
     }
 
-    static Store(side, tlx, tly, brx, bry) {
-        Cfg.Data["calibration"][side] := Map("tlx", tlx, "tly", tly, "brx", brx, "bry", bry, "res", Calib.PresetName())
+    ; src = "lua": measured with the Lua's own cursor reading (RSHIFT+MB4); "ahk": captured here.
+    static Store(side, tlx, tly, brx, bry, src := "lua") {
+        Cfg.Data["calibration"][side] := Map("tlx", tlx, "tly", tly, "brx", brx, "bry", bry, "res", Calib.PresetName(), "src", src)
         return true
+    }
+
+    ; ---- coordinate space -------------------------------------------------------------------
+    ; The Lua reads the cursor as a fraction of G HUB's 0..65535 range. On one monitor that equals
+    ; x / screen width; with several monitors it may span the WHOLE desktop instead. Points captured
+    ; here must be converted the same way or the pasted calibration is wrong. The space is learned
+    ; from the Lua's own click reports (detect_result / calibration_point) and stored.
+    static Space() => Cfg.Get("game.coordSpace", "")
+
+    static SingleMonitor() => (SysGet(76) = 0 && SysGet(77) = 0 && SysGet(78) = A_ScreenWidth && SysGet(79) = A_ScreenHeight)
+
+    static SpaceOK() => (Calib.Space() != "" || Calib.SingleMonitor())
+
+    static SpaceText() {
+        sp := Calib.Space()
+        if (sp != "")
+            return "learned: " sp " monitor space"
+        return Calib.SingleMonitor() ? "single monitor (no ambiguity)" : "NOT VERIFIED (multi-monitor): click a tile with RSHIFT+LMB in game"
+    }
+
+    ; screen pixels -> the Lua's 0..1 space
+    static Norm(px, py) {
+        if (Calib.Space() = "virtual") {
+            vl := SysGet(76), vt := SysGet(77), vw := SysGet(78), vh := SysGet(79)
+            return [(px - vl) / vw, (py - vt) / vh]
+        }
+        return [px / A_ScreenWidth, py / A_ScreenHeight]
+    }
+
+    ; Called with a point the Lua just reported (lx, ly in ITS space) while the cursor is still there.
+    static Learn(lx, ly) {
+        MouseGetPos(&px, &py)
+        vl := SysGet(76), vt := SysGet(77), vw := SysGet(78), vh := SysGet(79)
+        dp := Abs(px / A_ScreenWidth - lx) + Abs(py / A_ScreenHeight - ly)
+        dv := Abs((px - vl) / vw - lx) + Abs((py - vt) / vh - ly)
+        if (Abs(dp - dv) < 0.02 || Min(dp, dv) > 0.06)
+            return                                      ; ambiguous (single monitor) or the cursor already moved
+        sp := dp < dv ? "primary" : "virtual"
+        if (Calib.Space() != sp) {
+            Cfg.Set("game.coordSpace", sp)
+            Diag.Log("coordinate space learned: " sp)
+        }
+    }
+
+    ; A calibration is sent to the Lua only if it was measured by the Lua, or the space is verified.
+    static Exportable(c) => (c.Get("src", "") = "lua" || Calib.SpaceOK())
+
+    static Matches(c, text) {
+        p := StrSplit(text, ",")
+        if (p.Length != 4)
+            return false
+        for i, k in ["tlx", "tly", "brx", "bry"]
+            if (!IsNumber(p[i]) || Abs(p[i] - c[k]) > 0.001)
+                return false
+        return true
+    }
+
+    ; entries saved by older versions have no source: it is "lua" if the Lua reports the same numbers
+    static SetSrc(side, luaText) {
+        c := Cfg.Data["calibration"].Has(side) ? Cfg.Data["calibration"][side] : ""
+        if (!IsObject(c) || c.Get("src", "") != "")
+            return false
+        c["src"] := Calib.Matches(c, luaText) ? "lua" : "ahk"
+        return true
+    }
+
+    ; what the Lua reported for its last RSHIFT+click, compared with this app's own grid maths
+    static LuaLast := Map()
+    static OnLuaDetect(e) {
+        x := Float(e.Get("x", 0)), y := Float(e.Get("y", 0))
+        side := e.Get("side", "attackers")
+        Calib.Learn(x, y)
+        d := Calib.Detect(x, y, side)
+        lr := Integer(e.Get("row", 0)), lc := Integer(e.Get("col", 0))
+        agree := (d["row"] = lr && d["col"] = lc)
+        Calib.LuaLast := Map("x", x, "y", y, "side", side, "row", lr, "col", lc, "result", e.Get("result", ""), "name", e.Get("name", "-")
+            , "ahkRow", d["row"], "ahkCol", d["col"], "ahkName", d["name"], "agree", agree)
+        View.Changed()
+    }
+
+    ; Clears every grid saved here so the Lua falls back to its own presets (the calibration "undo").
+    static ResetBoth() {
+        for side in Db.Sides
+            if Calib.HasCal(side)
+                Cfg.Data["calibration"].Delete(side)
+        Cfg.Dirty()
+        Calib.Err := ""
+        Toast.Show("info", "CALIBRATION RESET", "Both grids use the Lua presets", "Copy the Lua script to apply", "")
+        View.Changed()
     }
 
     static ResetSide(side) {
@@ -3613,6 +3752,7 @@ class Calib {
     }
     static OnLuaPoint(sideLabel, step, x, y) {
         Calib.Side := Db.SideFromLua(sideLabel)
+        Calib.Learn(x, y)
         Calib.Pts.Push([x, y])
         Calib.Step := Min(2, step + 1)
         View.Changed()
@@ -3621,7 +3761,7 @@ class Calib {
         side := Db.SideFromLua(sideLabel)
         Calib.Side := side
         Calib.Active := false, Calib.Pts := [], Calib.Err := ""
-        Cfg.FromLua(() => Calib.Store(side, tlx, tly, brx, bry))
+        Cfg.FromLua(() => Calib.Store(side, tlx, tly, brx, bry, "lua"))
         View.Changed()
     }
     static OnLuaFailed(sideLabel, reason) {
@@ -3687,7 +3827,8 @@ class Calib {
 
     static Tick() {
         MouseGetPos(&x, &y)
-        nx := x / A_ScreenWidth, ny := y / A_ScreenHeight
+        n := Calib.Norm(x, y)
+        nx := n[1], ny := n[2]
         d := Calib.Detect(nx, ny, Calib.Side)
         d["x"] := x, d["y"] := y, d["nx"] := nx, d["ny"] := ny
         Calib.Live := d
@@ -4215,6 +4356,13 @@ class Diagnostics {
         t .= "`nCALIBRATION`n"
         for side in Db.Sides
             t .= Diagnostics.Row(StrUpper(Db.SideLabel(side)) " GRID", Calib.Long(side))
+        t .= Diagnostics.Row("COORDINATE SPACE", Calib.SpaceText())
+        ll := Calib.LuaLast
+        t .= Diagnostics.Row("LAST LUA CLICK", !ll.Count ? "none yet (RSHIFT + left click a tile)"
+            : (ll["agree"] ? "✓ agrees with this app" : "✗ DIFFERS: Lua row " ll["row"] " col " ll["col"] " vs app row " ll["ahkRow"] " col " ll["ahkCol"]))
+        for side in Db.Sides
+            if (Calib.HasCal(side) && !Calib.Exportable(Cfg.Data["calibration"][side]))
+                t .= Diagnostics.Row(StrUpper(Db.SideLabel(side)) " EXPORT", "⚠ held back (captured here, space not verified)")
         t .= "`nLOADOUT`n"
         t .= Diagnostics.Row("PRIMARY", has ? Live.Get("primary", "-") : "-")
         t .= Diagnostics.Row("SECONDARY", has ? Live.Get("secondary", "-") : "-")
@@ -4231,6 +4379,7 @@ class Diagnostics {
         t .= Diagnostics.Row("LUA CONFIG", lc[1] = "OK" ? "✓ IN SYNC" : "⚠ " lc[2])
         t .= Diagnostics.Row("DATABASE", !has ? "-" : Live.Get("dbrev", "") = Db.Rev ? "✓ MATCHES LUA (" Db.Rev ")" : "⚠ MISMATCH (lua " Live.Get("dbrev", "?") " / app " Db.Rev ")")
         t .= Diagnostics.Row("APP VERSION", App.Version)
+        t .= Diagnostics.Row("LAST ERROR", Diag.LastError != "" ? "⚠ " Diag.LastError " (" Diag.ErrCount "x)" : "none")
         return t
     }
 
@@ -4583,6 +4732,7 @@ SetTimer(() => Live.Tick(), 1000)                ; link health
 SetTimer(() => Hud.KeepOnTop(), 2000)            ; borderless games can steal the Z-order
 SetTimer(() => (Center.Visible && (Center.Cur = "HOME" || Center.Cur = "DIAGNOSTICS") ? Center.RefreshPage() : 0), 1000)
 OnExit((*) => Cfg.SaveNow())
+OnError(AppError)                                ; any other uncaught error: log it, no modal box, keep running
 
 if (Cfg.Status = "RECOVERED" || Cfg.Status = "DAMAGED")
     SetTimer(() => Toast.Show("warn", "⚠ CONFIGURATION", Cfg.StatusMsg, "", ""), -800)
@@ -4598,6 +4748,11 @@ if !Cfg.Get("setup.done", 0)
 ~1::SlotSync.Set("PRIMARY")
 ~2::SlotSync.Set("SECONDARY")
 #HotIf
+
+AppError(e, mode) {
+    try Diag.Err(e, "uncaught")
+    return 1                                     ; 1 = handled: suppress the error dialog
+}
 
 ; ------------------------------------------------------------------------------
 ; GENERATED DATA - operators, weapons, attachments, grids, grid presets.

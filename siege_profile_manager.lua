@@ -1904,7 +1904,13 @@ local function HandleSelectionClick()
     local spec = GetGridSpec(side)
     Debug("GRID", "side=%s dimensions=%dx%d (cols x rows)", side, spec.columns, spec.rows)
     local row, col = MapCoordinatesToOperatorGrid(nx, ny, spec)
+    -- report where this click landed (informational: lets the companion verify the coordinate space + grid)
+    local function Landed(result, name, r, c)
+        Emit("detect_result", "side", side, "x", string.format("%.5f", nx), "y", string.format("%.5f", ny),
+            "row", r or 0, "col", c or 0, "result", result, "name", name or "-")
+    end
     if not row then
+        Landed(col == "gap" and "gap" or "outside")
         Debug("GRID", (col == "gap") and "tile gap" or "outside operator grid")
         Notify(Sym().cross .. ((col == "gap") and " CLICK IN GAP BETWEEN TILES" or " CLICK OUTSIDE OPERATOR GRID"))
         return
@@ -1912,10 +1918,12 @@ local function HandleSelectionClick()
     Debug("GRID", "row=%d col=%d", row, col)
     local index, op, name, reason = GetOperatorFromGrid(side, row, col, spec)
     if reason == "EMPTY" then
+        Landed("empty", nil, row, col)
         Debug("MAP", "row=%d col=%d -> EMPTY", row, col)
         Notify(string.format("TILE ROW %d COL %d IS EMPTY", row, col))
         return
     elseif reason == "UNKNOWN" then
+        Landed("unmapped", nil, row, col)
         Debug("MAP", "row=%d col=%d -> UNMAPPED (?)", row, col)
         Notify(string.format("%s UNMAPPED TILE: set OPERATOR_GRID.%s.layout[%d][%d] = \"<name>\"",
             Sym().cross, side, row, col))
@@ -1925,6 +1933,7 @@ local function HandleSelectionClick()
         Notify(string.format("%s GRID NAME '%s' IS NOT IN OPERATORS.%s", Sym().cross, name, side))
         return
     end
+    Landed("ok", name, row, col)
     Debug("MAP", "row=%d col=%d -> %s", row, col, name)
     Debug("DETECT", "%s", name)
     SelectOperator(side, index, "detect")
