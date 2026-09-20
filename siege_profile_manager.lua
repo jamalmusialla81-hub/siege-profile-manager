@@ -196,8 +196,8 @@ local CONFIG = {
     -- Hold time and gap are random inside these ranges (ms) so it is not a fixed metronome.
     rapidFire = {
         enabled = true,
-        downMs  = { 14, 28 },
-        upMs    = { 34, 62 },
+        downMs  = { 26, 40 },   -- long enough that a frame at 60 fps or lower still sees every click
+        upMs    = { 30, 60 },
     },
 
     -- Follows the weapon slot you pick in game with the 1 / 2 keys. G HUB Lua cannot see
@@ -1321,6 +1321,8 @@ local State = {
     loadouts     = {},    -- operator name -> { active = index, dirty = bool, list = { {name, primary, secondary} } }
     cfgRev       = "none",   -- rev of the SPM_USER block that was loaded
     favoritesFromUser = false,
+    -- input diagnostics (read-only, shown in the companion): why the macro did / did not start
+    diag         = { lmb = 0, rmb = 0, bursts = 0, skips = 0, skip = "-", inj = "-", clicks = 0, lastRender = 0, last = "-" },
 }
 
 --=====================================================================
@@ -2357,6 +2359,14 @@ local function ExportState()
         { "fav_n", favCount },
         { "warn_n", #State.warnings },
         { "warn_1", State.warnings[1] or "-" },
+        { "ev_lmb", State.diag.lmb },
+        { "ev_rmb", State.diag.rmb },
+        { "ev_bursts", State.diag.bursts },
+        { "ev_skips", State.diag.skips },
+        { "ev_skip", State.diag.skip },
+        { "ev_inj", State.diag.inj },
+        { "ev_clicks", State.diag.clicks },
+        { "ev_last", State.diag.last },
         -- V2 additions (companion): config/db revisions, named loadout, display + game settings, grid overrides
         { "cfgrev", State.cfgRev },
         { "dbrev", State.dbRev or "-" },
@@ -2741,7 +2751,14 @@ local function RunRecoil()
     local p, attMul = ActiveRecoilProfile()
     attMul = attMul or 1
     local rapid = RapidWeaponActive()
-    if not p and not rapid then return end
+    if not p and not rapid then
+        -- tell the caller (and the companion diagnostics) why nothing happened
+        local w = tostring(ActiveWeaponSlot().weapon)
+        if not State.enabled then return "system is OFF" end
+        if State.calibration.active then return "calibration in progress" end
+        if not RecoilSlotAllowed() then return "recoil is off for the secondary weapon" end
+        return "no recoil profile for " .. w .. " and rapid fire does not apply to it"
+    end
     local jc = cfg.jitter or {}
     local jm = jc.enabled and (jc.amount or 1) or 0
     local ref = cfg.reference
@@ -2753,6 +2770,8 @@ local function RunRecoil()
             local start, remX, remY = GetRunningTime(), 0, 0
             local sumX, sumY, ticks, clicks = 0, 0, 0, 0
             Emit("burst_start", "weapon", ActiveWeaponSlot().weapon, "recoil", p and 1 or 0, "rapid", rapid and 1 or 0)
+            State.diag.bursts = State.diag.bursts + 1
+            local probed = false
             local strength, side, late = 1, 0, 1
             if p then strength, side, late = p.strength or 1, p.side or 0, p.late or 1 end
             -- per-burst randomness: this spray pulls a little harder or softer than the last
@@ -2821,6 +2840,11 @@ local function RunRecoil()
                     if down then
                         ReleaseMouseButton(cfg.fireButton)
                         down = false
+                        if not probed then
+                            -- does IsMouseButtonPressed still report the PHYSICAL button after we injected a release?
+                            probed = true
+                            State.diag.inj = IsMouseButtonPressed(cfg.fireButton) and "physical (OK)" or "LOGICAL (reads released!)"
+                        end
                         local upMs = Rand(rf.upMs[1], rf.upMs[2])
                         if cycleMs > 0 then
                             upMs = math.max(upMs, cycleMs * Rand(1.0, 1.12) - (now - lastPress))
@@ -2840,6 +2864,7 @@ local function RunRecoil()
             if rapid then ReleaseMouseButton(cfg.fireButton) end
             -- proof for the overlay/console that the macro really fired, and how much it pulled
             State.spray = { ms = GetRunningTime() - start, n = ticks, x = sumX, y = sumY, c = clicks }
+            State.diag.clicks = State.diag.clicks + clicks
             Emit("burst_end", "ms", State.spray.ms, "ticks", ticks, "clicks", clicks)
             Render()
         else
@@ -3335,9 +3360,36 @@ function OnEvent(event, arg, family)
     end
     if SyncSlotFromKeyboard() then Render() end
     if event ~= EVENT_MOUSE_PRESSED then return end
-    if HandleMouseButton(arg) then Render() return end
-    -- No modifier held (menu clicks / binds use one): start recoil control
-    if #HeldModifiers() == 0 and (arg == CONFIG.recoil.fireButton or arg == CONFIG.recoil.aimEvent) then
-        RunRecoil()
+    -- input diagnostics: what did G HUB deliver, and did a manager hotkey take the click?
+    do
+        local d = State.diag
+        if arg == CONFIG.recoil.fireButton then d.lmb = d.lmb + 1 elseif arg == CONFIG.recoil.aimEvent then d.rmb = d.rmb + 1 end
+        local held = HeldModifiers()
+        d.last = (BUTTON_NAME[arg] or tostring(arg)) .. (#held > 0 and ("+" .. table.concat(held, "+")) or "")
+    end
+    if HandleMouseButton(arg) then
+        if arg == CONFIG.recoil.fireButton or arg == CONFIG.recoil.aimEvent then
+            local d = State.diag
+            d.skips, d.skip = d.skips + 1, "click taken by a manager hotkey (" .. d.last .. ")"
+        end
+        Render()
+        return
+    end
+    -- Start recoil / rapid-fire control on fire or ADS. A held modifier (crouch, walk...) no longer
+    -- blocks it; only a modifier + button that is really bound to a manager action does.
+    if arg == CONFIG.recoil.fireButton or arg == CONFIG.recoil.aimEvent then
+        local bound
+        for _, m in ipairs(HeldModifiers()) do
+            if State.bindIndex[m .. ":" .. tostring(arg)] then bound = m end
+        end
+        local why
+        if bound then why = "modifier " .. bound .. " + button is a manager hotkey"
+        else why = RunRecoil() end
+        if why then
+            local d = State.diag
+            d.skips, d.skip = d.skips + 1, why
+            local now = GetRunningTime()
+            if now - d.lastRender > 500 then d.lastRender = now Render() end   -- keep the companion current
+        end
     end
 end

@@ -3741,6 +3741,21 @@ class Diagnostics {
         rd := cap = "" ? "" : cap = "-" ? "weapon " g("weapon", "?") " is not in the Lua's semi-auto list"
             : "weapon " g("weapon", "?") ": semi-auto, cap " cap " rpm"
         t .= Diagnostics.Mod("RAPID FIRE", "m_rapid", rd, "rapid")
+        ; why is (or is not) it clicking? counters straight from the Lua's input handler
+        t .= Format("{:-22s}{}", "  INPUT EVENTS", "LMB " g("ev_lmb", "?") "  RMB " g("ev_rmb", "?") "  bursts " g("ev_bursts", "?") "  clicks sent " g("ev_clicks", "?")) "`n"
+        t .= Format("{:-22s}{}", "  LAST BUTTON SEEN", g("ev_last", "?")) "`n"
+        t .= Format("{:-22s}{}", "  LAST SKIP REASON", g("ev_skip", "-") (g("ev_skips", "0") != "0" ? "   (" g("ev_skips") "x)" : "")) "`n"
+        inj := g("ev_inj", "-")
+        t .= Format("{:-22s}{}", "  CLICK INJECTION", inj = "-" ? "not tested yet (needs one rapid-fire burst)" : inj) "`n"
+        hint := ""
+        if (InStr(inj, "LOGICAL"))
+            hint := "IsMouseButtonPressed follows the injected clicks, so the burst ends after the first click."
+        else if (InStr(g("ev_skip", ""), "manager hotkey"))
+            hint := "A modifier held while firing (Ctrl/Shift/Alt) triggered a manager hotkey instead of the macro."
+        else if (g("ev_lmb", "") = "0")
+            hint := "No LMB event received yet. Fire once; if this stays 0, G HUB is not sending clicks to this script."
+        if (hint != "")
+            t .= "  ⚠ " hint "`n"
         t .= Diagnostics.Mod("RECOIL TUNE", "m_tune", g("tune", "0") = "1" ? "step " g("tune_step", "?") " " g("tune_name", "") : "")
         t .= Diagnostics.Mod("DEBUG LOG", "m_debug")
         t .= Format("{:-22s}{:-18s}{}", "LOADOUT MANAGER", "✓ ENABLED", "loadout " g("loadout", "-") " (" g("loadout_n", "0") " saved), " g("fav_n", "?") " favourites") "`n"
