@@ -3931,7 +3931,7 @@ class View {
     static RebuildSoon(full := false) {
         View.FullRebuild := View.FullRebuild || full
         if !IsObject(View.RebuildFn)
-            View.RebuildFn := ObjBindMethod(UI, "DoRebuild")
+            View.RebuildFn := ObjBindMethod(View, "DoRebuild")
         SetTimer(View.RebuildFn, -350)
     }
 
