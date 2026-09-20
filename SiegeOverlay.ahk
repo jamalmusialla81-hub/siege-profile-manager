@@ -579,6 +579,7 @@ class Cfg {
         d["hotkeys"] := Map("mode", "F8", "visible", "F9", "capture", "F7", "profiles", "F10")
         d["setup"] := Map("done", 0)
         d["sync"] := Map("baseline", "", "copiedRev", "")
+        d["lua"] := Map("path", "")
         return d
     }
 
@@ -758,7 +759,7 @@ class Cfg {
         d := Cfg.Defaults()
         out := Map()
         out["version"] := App.CfgVersion
-        for sec in ["game", "prefs", "state", "ui", "hotkeys", "setup", "sync"] {
+        for sec in ["game", "prefs", "state", "ui", "hotkeys", "setup", "sync", "lua"] {
             m := d[sec]
             src := (data.Has(sec) && Type(data[sec]) = "Map") ? data[sec] : Map()
             for k, v in src
@@ -1026,19 +1027,77 @@ class LuaBlock {
         return t
     }
 
-    ; Copies the block to the clipboard (and to a file) and marks the config as handed over.
+    ; Where the user's siege_profile_manager.lua lives: remembered path, else next to this script,
+    ; else ask once (the choice is remembered in the config).
+    static FindLua() {
+        p := Cfg.Get("lua.path", "")
+        if (p != "" && FileExist(p))
+            return p
+        p := A_ScriptDir "\siege_profile_manager.lua"
+        if FileExist(p) {
+            Cfg.Set("lua.path", p)
+            return p
+        }
+        p := FileSelect(1, A_ScriptDir, "Select your siege_profile_manager.lua (V2)", "Lua (*.lua)")
+        if (p != "")
+            Cfg.Set("lua.path", p)
+        return p
+    }
+
+    ; The user's ENTIRE Lua script with the SPM_USER block replaced by one built from the current
+    ; configuration. Everything outside the markers is copied byte for byte (line endings kept).
+    ; Returns the script text, or "" with a reason in err.
+    static FullScript(rev, &err) {
+        err := ""
+        path := LuaBlock.FindLua()
+        if (path = "") {
+            err := "Lua script not found (no file chosen)"
+            return ""
+        }
+        try text := FileRead(path, "UTF-8")
+        catch as e {
+            err := "cannot read the Lua script: " e.Message
+            return ""
+        }
+        beginMark := "-- >>> SPM_USER BEGIN"
+        endMark := "-- <<< SPM_USER END <<<"
+        b := InStr(text, beginMark)
+        e2 := b ? InStr(text, endMark, false, b) : 0
+        if (!b || !e2) {
+            err := "that Lua file has no SPM_USER markers - use the V2 siege_profile_manager.lua"
+            return ""
+        }
+        eol := InStr(text, "`r`n") ? "`r`n" : "`n"
+        block := StrReplace(RTrim(LuaBlock.Build(rev), "`n"), "`n", eol)
+        return SubStr(text, 1, b - 1) block SubStr(text, e2 + StrLen(endMark))
+    }
+
+    ; Puts the complete script (with the user's config merged in) on the clipboard and marks the
+    ; config as handed over. If the Lua file cannot be found/used, falls back to the block alone.
+    ; Returns Map(rev, full, err).
     static Copy() {
         rev := A_Now
-        text := LuaBlock.Build(rev)
+        text := LuaBlock.FullScript(rev, &err)
+        full := (text != "")
+        if !full
+            text := LuaBlock.Build(rev)
         A_Clipboard := text
         try {
-            f := FileOpen(App.Dir "\spm_user_block.lua", "w", "UTF-8-RAW")
+            f := FileOpen(App.Dir (full ? "\siege_profile_manager.merged.lua" : "\spm_user_block.lua"), "w", "UTF-8-RAW")
             f.Write(text)
             f.Close()
         }
         Cfg.Data["sync"]["copiedRev"] := rev
         Cfg.Rebase()
-        return rev
+        return Map("rev", rev, "full", full, "err", err)
+    }
+
+    ; Toast shown after a copy (shared by the Home/Settings buttons and the wizard).
+    static Announce(r) {
+        if r["full"]
+            Toast.Show("ok", "✓ FULL SCRIPT COPIED", "Your whole Lua script + your config", "G HUB: select all, paste, save", "")
+        else
+            Toast.Show("warn", "⚠ ONLY THE CONFIG BLOCK COPIED", r["err"], "Paste it over the SPM_USER markers", "")
     }
 }
 
@@ -1469,11 +1528,11 @@ class Sync {
         rev := Live.Get("cfgrev", "none")
         copied := Cfg.Get("sync.copiedRev", "")
         if (rev = "none")
-            return ["NONE", "Lua uses its built-in defaults (no SPM_USER block pasted yet)"]
+            return ["NONE", "Lua uses its built-in defaults (your config has not been pasted yet)"]
         if (rev != copied)
-            return ["OLD", "Lua has an older config block (rev " rev ") - copy + paste the current one"]
+            return ["OLD", "Lua has an older config block (rev " rev ") - copy + paste the full script again"]
         if Cfg.Pending()
-            return ["PENDING", "changes not yet in the Lua - copy + paste the config block"]
+            return ["PENDING", "changes not yet in the Lua - copy + paste the full script"]
         return ["OK", "Lua config in sync (rev " rev ")"]
     }
 }
@@ -2109,7 +2168,7 @@ class Center {
         lc := Sync.LuaConfig()
         short := lc[1] = "OK" ? "● IN SYNC" : lc[1] = "PENDING" ? "● CHANGES PENDING" : lc[1] = "OLD" ? "● BLOCK OUTDATED"
             : lc[1] = "NONE" ? "● NO BLOCK PASTED" : "● WAITING"
-        SetText(c["sync"], short "`n" (lc[1] = "OK" ? "" : "Settings > COPY LUA BLOCK"))
+        SetText(c["sync"], short "`n" (lc[1] = "OK" ? "" : "Copy the full script (Settings)"))
         Ui.Paint(c["sync"], lc[1] = "OK" ? Clr.Green : lc[1] = "UNKNOWN" ? Clr.Dim : Clr.Amber)
         Center.RefreshPage()
     }
@@ -2159,7 +2218,7 @@ class Center {
         c["h_recent"] := add(Ui.List(g, 208, 396, 350, 216, ["When", "What"]))
         c["h_recent"].ModifyCol(1, Ui.S(70)), c["h_recent"].ModifyCol(2, Ui.S(266))
         Center.Card(add, g, 586, 370, 374, 254, "QUICK ACTIONS")
-        add(Ui.Btn(g, 600, 398, 346, 32, "COPY LUA CONFIG BLOCK", () => Center.CopyBlock(), "p"))
+        add(Ui.Btn(g, 600, 398, 346, 32, "COPY FULL LUA SCRIPT + MY CONFIG", () => Center.CopyBlock(), "p"))
         add(Ui.Btn(g, 600, 436, 346, 32, "TEST GRID DETECTION", () => Center.StartTest()))
         add(Ui.Btn(g, 600, 474, 346, 32, "COPY DIAGNOSTIC REPORT", () => Center.CopyReport()))
         add(Ui.Btn(g, 600, 512, 346, 32, "RUN SETUP WIZARD", () => Wizard.Start()))
@@ -2218,8 +2277,7 @@ class Center {
 
     static CopyBlock() {
         Center.Gui.Opt("+OwnDialogs")
-        rev := LuaBlock.Copy()
-        Toast.Show("ok", "✓ CONFIGURATION SAVED", "Lua config block copied", "Paste it over the SPM_USER block", "in the G HUB script")
+        LuaBlock.Announce(LuaBlock.Copy())
         View.Changed()
     }
 
@@ -2406,10 +2464,10 @@ class Center {
                     || lo[kind]["barrel"] != Live.Att(kind, "barrel") || lo[kind]["grip"] != Live.Att(kind, "grip")) : w != "NONE")
                     same := false
             }
-            msg := same ? "● Matches the loadout the game is using." : "● Differs from the game: use the in-game hotkeys, RALT+RMB, or paste the config block."
+            msg := same ? "● Matches the loadout the game is using." : "● Differs from the game: use the in-game hotkeys, RALT+RMB, or paste the full script (Settings)."
             Ui.Paint(c["o_sync"], same ? Clr.Green : Clr.Amber)
         } else {
-            msg := "Changes are saved here and reach the game through the config block (Settings)."
+            msg := "Changes are saved here and reach the game through the copied Lua script (Settings)."
             Ui.Paint(c["o_sync"], Clr.Dim)
         }
         SetText(c["o_sync"], msg)
@@ -2447,7 +2505,7 @@ class Center {
             return
         Cfg.Set("state.side", f["side"])
         Cfg.Set("state.operator", f["op"]["name"])
-        Toast.Show("ok", "STARTING OPERATOR", StrUpper(f["op"]["name"]), "Applies when the config block is loaded", "")
+        Toast.Show("ok", "STARTING OPERATOR", StrUpper(f["op"]["name"]), "Applies when the copied script is loaded", "")
         View.Changed()
     }
 
@@ -2941,8 +2999,8 @@ class Center {
         c["s_lua"] := add(Ui.Txt(g, 212, 496, 736, 22, "", 10, "Bold", Clr.Text, Clr.Panel))
         c["s_lua2"] := add(Ui.Txt(g, 212, 520, 736, 40, "", 9, "Norm", Clr.Dim, Clr.Panel))
         c["s_lua2"].Opt("-0x200 -0x4000")
-        add(Ui.Btn(g, 212, 574, 300, 34, "COPY LUA CONFIG BLOCK", () => Center.CopyBlock(), "p"))
-        add(Ui.Txt(g, 526, 574, 424, 34, "G HUB → script → select everything between the SPM_USER markers → paste.", 8, "Norm", Clr.Mute, Clr.Panel))
+        add(Ui.Btn(g, 212, 574, 300, 34, "COPY FULL LUA SCRIPT + MY CONFIG", () => Center.CopyBlock(), "p"))
+        add(Ui.Txt(g, 526, 574, 424, 34, "G HUB → open the script → select all (Ctrl+A) → paste → save.", 8, "Norm", Clr.Mute, Clr.Panel))
     }
 
     static OnNum(path, lo, hi, ctrl, *) {
@@ -3018,8 +3076,8 @@ class Center {
         lc := Sync.LuaConfig()
         SetText(c["s_lua"], (lc[1] = "OK" ? "● " : "⚠ ") lc[2])
         Ui.Paint(c["s_lua"], lc[1] = "OK" ? Clr.Green : lc[1] = "UNKNOWN" ? Clr.Dim : Clr.Amber)
-        SetText(c["s_lua2"], "The G HUB Lua cannot read files, so your saved settings reach it as a small config block. "
-            . "Paste it once; it is stored in the script and survives G HUB / Windows restarts. Copy a new one after changing settings here.")
+        SetText(c["s_lua2"], "The G HUB Lua cannot read files, so your settings reach it inside the script itself. This button copies your whole "
+            . "siege_profile_manager.lua with your config merged in: select all in the G HUB script, paste, save. It survives G HUB / Windows restarts.")
         Center.Guard := false
     }
 
@@ -3145,7 +3203,7 @@ class Center {
         } else if ahk
             c["k_key"].Text := r["value"]
         Center.Guard := false
-        SetText(c["k_msg"], lua ? "Manager hotkeys are read by the G HUB Lua: a change is sent with the config block (Settings > COPY LUA CONFIG BLOCK) and takes effect when the script reloads."
+        SetText(c["k_msg"], lua ? "Manager hotkeys are read by the G HUB Lua: a change is sent with the config block (Settings > COPY FULL LUA SCRIPT) and takes effect when the script reloads."
             : ahk ? "These hotkeys work immediately. Type a key name such as F8, F9, F7, Insert, ^F8 (Ctrl+F8)."
             : "This binding is fixed: it is set in the Lua (CONFIG.input) and used in fixed places.")
     }
@@ -3165,7 +3223,7 @@ class Center {
             }
             Cfg.Data["luaKeybinds"][r["id"]] := Map("mod", md, "button", btn)
             Cfg.Dirty()
-            Toast.Show("ok", "✓ BINDING CHANGED", r["label"], StrUpper(md) " + " Hk.Btns[btn], "Copy the Lua block to apply")
+            Toast.Show("ok", "✓ BINDING CHANGED", r["label"], StrUpper(md) " + " Hk.Btns[btn], "Copy the Lua script to apply")
         } else if (r["type"] = "ahk") {
             err := Hk.SetAhk(r["id"], Trim(c["k_key"].Text))
             if (err != "") {
@@ -3318,7 +3376,7 @@ class Calib {
         Calib.Err := ""
         Calib.Store(Calib.Side, a[1], a[2], b[1], b[2])
         Cfg.Dirty()
-        Toast.Show("ok", "✓ CALIBRATION COMPLETE", Db.SideLabel(Calib.Side) " GRID", "Copy the Lua block to use it in game", "")
+        Toast.Show("ok", "✓ CALIBRATION COMPLETE", Db.SideLabel(Calib.Side) " GRID", "Copy the Lua script to use it in game", "")
     }
 
     static Store(side, tlx, tly, brx, bry) {
@@ -3330,7 +3388,7 @@ class Calib {
         Cfg.Data["calibration"].Delete(side)
         Cfg.Dirty()
         Calib.Err := ""
-        Toast.Show("info", "CALIBRATION RESET", Db.SideLabel(side) " grid uses the preset", "Copy the Lua block to apply", "")
+        Toast.Show("info", "CALIBRATION RESET", Db.SideLabel(side) " grid uses the preset", "Copy the Lua script to apply", "")
         View.Changed()
     }
 
@@ -3664,7 +3722,7 @@ class Wizard {
             Map("t", "Defender calibration", "k", "cal", "side", "defenders", "b", "Same as before, on the DEFENDER selector."),
             Map("t", "Detection test", "k", "test", "b", "Move the cursor over the operator selector. The name below must match the tile under the cursor. Use the side button to test the other grid."),
             Map("t", "HUD position", "k", "hud", "b", "Where the compact HUD sits on screen. You can fine-tune everything later on the HUD page."),
-            Map("t", "Save configuration", "k", "save", "b", "Everything is saved on this PC automatically. To use it inside G HUB, copy the Lua config block and paste it over the SPM_USER block in the script."),
+            Map("t", "Save configuration", "k", "save", "b", "Everything is saved on this PC automatically. To use it inside G HUB, press the button: it copies your whole Lua script with your config merged in. Select all in the G HUB script, paste, save."),
             Map("t", "Finished", "k", "done", "b", "You are ready. F8 switches between the compact HUD and the control centre, F9 hides everything.")
         ]
     }
@@ -3741,7 +3799,7 @@ class Wizard {
             Calib.Side := st["side"]
             SetText(c["b1"], "START CALIBRATION")
         } else if (k = "save")
-            SetText(c["b1"], "COPY LUA CONFIG BLOCK")
+            SetText(c["b1"], "COPY FULL LUA SCRIPT + MY CONFIG")
         Wizard.Refresh()
     }
 
@@ -3787,8 +3845,7 @@ class Wizard {
             Wizard.Ctl["in"].Text := A_ScreenWidth "x" A_ScreenHeight
         } else if (k = "save") {
             Cfg.SaveNow()
-            LuaBlock.Copy()
-            Toast.Show("ok", "✓ CONFIGURATION SAVED", "Lua config block copied", "Paste it into the G HUB script", "")
+            LuaBlock.Announce(LuaBlock.Copy())
             Wizard.Refresh()
         }
     }

@@ -9,7 +9,7 @@ A Logitech G HUB Lua script (`siege_profile_manager.lua`) plus an AutoHotkey v2 
 The AHK is now a control centre (compact HUD + full window) with persistent config, named loadouts,
 calibration wizard, first-run setup, diagnostics and a versioned Lua protocol
 (`SPMSTATE` / `SPMEVENT` / `SPMBEAT`). Settings reach the Lua through a generated `SPM_USER` block
-(Settings > COPY LUA CONFIG BLOCK, paste over the markers at the top of the Lua).
+(Settings > COPY FULL LUA SCRIPT + MY CONFIG copies your whole Lua with your config merged in: select all in the G HUB script, paste, save).
 
 ## Files
 
