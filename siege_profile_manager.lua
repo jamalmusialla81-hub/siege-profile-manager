@@ -149,6 +149,7 @@ local CONFIG = {
         -- the in-game pull is the same at your dpi * sensitivity.
         reference     = { dpi = 800, horizontal = 11, vertical = 11 },
         requireBarrel = "COMPENSATOR",   -- profile only applies with this barrel (nil = any)
+        secondary     = true,   -- recoil also works on the secondary weapon (e.g. SMG-12); false = primary only
         gain          = 1.0,             -- overall pull strength multiplier (tune mode edits this)
     },
 
@@ -1259,6 +1260,16 @@ local function CurrentOperator()
     return OPERATORS[State.side][State.opIndex[State.side]]
 end
 
+-- The weapon slot being used right now (primary or secondary) and its loadout.
+local function ActiveWeaponSlot()
+    return State.loadout[State.activeSlot]
+end
+
+-- Recoil follows the active slot; the secondary can be switched off in CONFIG.recoil.secondary.
+local function RecoilSlotAllowed()
+    return State.activeSlot == "primary" or CONFIG.recoil.secondary == true
+end
+
 -- OPERATOR_WEAPON_BARREL_GRIP, caps, non-alphanumerics -> "_".
 local function BuildProfileId(operatorName, weaponId, barrel, grip)
     local function part(s)
@@ -1748,8 +1759,9 @@ local function RecoilStatus()
     local cfg = CONFIG.recoil
     if not cfg.enabled then return "OFF (CONFIG.recoil.enabled = false)" end
     if not State.enabled then return "OFF (system disabled, RALT+MB5)" end
-    local slot = State.loadout.primary
-    if State.activeSlot ~= "primary" or not slot or not slot.weapon then return "idle (primary weapon not active)" end
+    local slot = ActiveWeaponSlot()
+    if not slot or not slot.weapon then return "idle (no weapon in this slot)" end
+    if not RecoilSlotAllowed() then return "off for the secondary (CONFIG.recoil.secondary)" end
     local p, key, exact = FindRecoilProfile(slot)
     if not p then
         return string.format("no profile for %s + %s + %s", slot.weapon, tostring(slot.barrel), tostring(slot.grip))
@@ -1782,9 +1794,12 @@ local function NextHint()
     end
     if State.tune.active then return "Tuning: spray at a wall, then answer with MB5 / MB4" end
     if not cfg.enabled then return "Recoil is disabled in CONFIG.recoil.enabled" end
-    local slot = State.loadout.primary
-    if State.activeSlot ~= "primary" or not slot or not slot.weapon then
-        return "Recoil only works on a primary weapon: " .. BindText(kb.nextPrimary) .. " picks one"
+    local slot = ActiveWeaponSlot()
+    if not slot or not slot.weapon then
+        return "This operator has no weapon in the " .. State.activeSlot .. " slot"
+    end
+    if not RecoilSlotAllowed() then
+        return "Recoil is off for secondary weapons (CONFIG.recoil.secondary = false)"
     end
     local p, key, exact = FindRecoilProfile(slot)
     if not p then
@@ -1874,12 +1889,12 @@ local function BuildFrame()
 
     if State.tune.active then
         rule(S.ml, S.mr)
-        local tp = FindRecoilProfile(State.loadout.primary)
+        local tp = FindRecoilProfile(ActiveWeaponSlot())
         if tp then
             local tf = TUNE_FIELDS[State.tune.field]
             local last = (State.tune.field == #TUNE_FIELDS)
             row(string.format("RECOIL TUNE - %s   STEP %d of %d: %s   (now %s)",
-                tostring(State.loadout.primary.weapon), State.tune.field, #TUNE_FIELDS,
+                tostring(ActiveWeaponSlot().weapon), State.tune.field, #TUNE_FIELDS,
                 tf.label, TuneValue(tf, tp)))
             row("HOW: hold RIGHT mouse (ADS) + LEFT mouse (fire) at a wall, then look at the holes.")
             row(tf.look)
@@ -1888,7 +1903,7 @@ local function BuildFrame()
             row("Looks good?  " .. BindText(tk.next) .. " = " .. (last and "FINISH" or "next step")
                 .. "    " .. BindText(tk.back) .. " = back    " .. BindText(tk.reset) .. " = reset")
         else
-            row("RECOIL TUNE - no primary weapon to tune (switch operator/primary)")
+            row("RECOIL TUNE - no weapon to tune in this slot")
         end
     end
 
@@ -1989,8 +2004,8 @@ local function ExportState()
     -- PROFILE_LIST is empty, so its "not calibrated" text would always show).
     local profileText = "NOT CONFIGURED"
     if IsConfigured(op) then
-        if State.activeSlot ~= "primary" then
-            profileText = "N/A (secondary)"
+        if not RecoilSlotAllowed() then
+            profileText = "N/A (secondary is off)"
         elseif FindRecoilProfile(slot) then
             local _, fk = FindRecoilProfile(slot)
             profileText = State.tune.starter[fk] and "STARTER - tune it" or "TUNED"
@@ -2033,14 +2048,14 @@ local function ExportState()
         { "next", NextHint() },
         { "spray", SprayText() },
         { "paste", (function()
-            local tp, k = FindRecoilProfile(State.loadout.primary)
+            local tp, k = FindRecoilProfile(ActiveWeaponSlot())
             return (tp and State.tune.touched[k]) and PasteLine(k, tp) or "-"
         end)() },
         { "tune", State.tune.active and 1 or 0 },
         { "tune_step", State.tune.active and (State.tune.field .. "/" .. #TUNE_FIELDS) or "-" },
         { "tune_name", State.tune.active and TUNE_FIELDS[State.tune.field].label or "-" },
         { "tune_val", State.tune.active and (function()
-            local tp, k = FindRecoilProfile(State.loadout.primary)
+            local tp, k = FindRecoilProfile(ActiveWeaponSlot())
             if not tp then return "-" end
             local f = TUNE_FIELDS[State.tune.field]
             local o = State.tune.orig[k]
@@ -2134,7 +2149,7 @@ end
 -- a copy of the closest existing profile for this weapon (so tuning starts from what
 -- works), else a fresh starter.
 local function TuneProfile(create)
-    local slot = State.loadout.primary
+    local slot = ActiveWeaponSlot()
     if not slot or not slot.weapon then return nil end
     local key = RecoilKey(slot)
     local p = RECOIL_PROFILES[key]
@@ -2160,7 +2175,7 @@ local function TuneRefresh()
     local p, weapon = TuneProfile(true)
     if not p then
         t.lines = {}
-        Notify("Recoil tune: no primary weapon to tune")
+        Notify("Recoil tune: no weapon to tune in this slot")
         return
     end
     local f = TUNE_FIELDS[t.field]
@@ -2349,8 +2364,8 @@ end
 local function ActiveRecoilProfile()
     local cfg = CONFIG.recoil
     if not cfg.enabled or not State.enabled or State.calibration.active then return nil end
-    if State.activeSlot ~= "primary" then return nil end
-    local slot, op = State.loadout.primary, CurrentOperator()
+    if not RecoilSlotAllowed() then return nil end
+    local slot, op = ActiveWeaponSlot(), CurrentOperator()
     local p, _, exact = FindRecoilProfile(slot)
     if not p or (p.operator and p.operator ~= op.name) then return nil end
     local need = (not exact) and (p.barrel or cfg.requireBarrel) or nil
@@ -2386,7 +2401,7 @@ local function RunRecoil()
     local ref = cfg.reference
     local sx = cfg.gain * (ref.dpi * ref.horizontal) / (CONFIG.dpi * CONFIG.sensitivity.horizontal)
     local sy = cfg.gain * (ref.dpi * ref.vertical)   / (CONFIG.dpi * CONFIG.sensitivity.vertical)
-    Debug("RECOIL", "%s scale %.3f/%.3f", tostring(State.loadout.primary.weapon), sx, sy)
+    Debug("RECOIL", "%s scale %.3f/%.3f", tostring(ActiveWeaponSlot().weapon), sx, sy)
     while IsMouseButtonPressed(cfg.aimButton) do
         if IsMouseButtonPressed(cfg.fireButton) then
             local start, remX, remY = GetRunningTime(), 0, 0
