@@ -36,7 +36,8 @@ class App {
 class Clr {   ; colour tokens (RGB hex, no #)
     static Bg := "090B10", Panel := "11141B", Panel2 := "1A1F29", Line := "252B38", Sel := "0F2B38"
     static Text := "F5F7FA", Dim := "97A1B2", Mute := "596378"
-    static Accent := "22D3EE", Ink := "04141A"                    ; brand colour + dark text used on top of it
+    static Accent := "22D3EE", Accent2 := "8B5CF6", Ink := "04141A"   ; brand gradient (cyan -> violet) + dark text on top of it
+    static GreenDim := "1F9E74"                                         ; the low point of the "live" pulse
     static Green := "34E0A1", Amber := "FBBF24", Red := "FB7185", Blue := "60A5FA"   ; status colours
 }
 
@@ -612,7 +613,7 @@ class Cfg {
     }
 
     static DefaultSections() => Map("operator", 1, "weapon", 1, "attachments", 1
-        , "connection", 1, "calibration", 0, "debug", 0)
+        , "connection", 1, "calibration", 0, "debug", 0, "modules", 1)
 
     ; --- access ---------------------------------------------------------------
     static Get(path, def := "") {
@@ -1711,14 +1712,47 @@ class Ui {
     static Pt(v) => Max(7, Round(v * Cfg.Num("ui.scale", 1.0)))
 
     ; Text with a solid background (so it never leaves repaint artefacts on a card).
-    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "F5F7FA", bg := "090B10", opts := "") {
-        g.SetFont("s" Ui.Pt(size) " " style " c" color, "Segoe UI")
+    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "F5F7FA", bg := "090B10", opts := "", face := "Segoe UI") {
+        g.SetFont("s" Ui.Pt(size) " " style " c" color, face)
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x200 +0x4000 Background" bg " " opts, text)
     }
 
     static Mono(g, x, y, w, h, text, size := 9, color := "F5F7FA", bg := "090B10") {
         g.SetFont("s" Ui.Pt(size) " Norm c" color, "Consolas")
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x4000 Background" bg, text)
+    }
+
+    ; "RRGGBB" mixed with "RRGGBB" (t = 0..1)
+    static Mix(c1, c2, t) {
+        r1 := Integer("0x" SubStr(c1, 1, 2)), g1 := Integer("0x" SubStr(c1, 3, 2)), b1 := Integer("0x" SubStr(c1, 5, 2))
+        r2 := Integer("0x" SubStr(c2, 1, 2)), g2 := Integer("0x" SubStr(c2, 3, 2)), b2 := Integer("0x" SubStr(c2, 5, 2))
+        return Format("{:02X}{:02X}{:02X}", Round(r1 + (r2 - r1) * t), Round(g1 + (g2 - g1) * t), Round(b1 + (b2 - b1) * t))
+    }
+
+    ; A horizontal gradient bar made of thin solid strips (AHK has no gradient control). Returns the strips.
+    static Gradient(g, x, y, w, h, c1, c2, steps := 40) {
+        out := []
+        loop steps {
+            x0 := Ui.S(x + (A_Index - 1) * w / steps)
+            x1 := Ui.S(x + A_Index * w / steps)
+            col := Ui.Mix(c1, c2, steps > 1 ? (A_Index - 1) / (steps - 1) : 0)
+            out.Push(g.AddText("x" x0 " y" Ui.S(y) " w" (x1 - x0 + 1) " h" Ui.S(h) " Background" col, ""))
+        }
+        return out
+    }
+
+    ; "RRGGBB" -> the BGR integer Windows wants
+    static Rgb(hex) => (Integer("0x" SubStr(hex, 5, 2)) << 16) | (Integer("0x" SubStr(hex, 3, 2)) << 8) | Integer("0x" SubStr(hex, 1, 2))
+
+    ; Windows 11 window chrome: rounded corners, coloured border / title bar. Silently ignored on older Windows.
+    static Chrome(g, caption := "", border := "", text := "") {
+        try DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", g.Hwnd, "Int", 33, "Int*", 2, "Int", 4)                 ; DWMWCP_ROUND
+        if (border != "")
+            try DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", g.Hwnd, "Int", 34, "UInt*", Ui.Rgb(border), "Int", 4)   ; border colour
+        if (caption != "")
+            try DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", g.Hwnd, "Int", 35, "UInt*", Ui.Rgb(caption), "Int", 4)  ; title bar colour
+        if (text != "")
+            try DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", g.Hwnd, "Int", 36, "UInt*", Ui.Rgb(text), "Int", 4)     ; title text colour
     }
 
     static Rect(g, x, y, w, h, color) {
@@ -1878,9 +1912,11 @@ class Toast {
         c["l3"] := Ui.Txt(g, 16, 82, Toast.W - 28, 20, "", 9, "Norm", Clr.Dim, Clr.Panel)
         for e in [Ui.Rect(g, 0, 0, Toast.W, 1, Clr.Line), Ui.Rect(g, 0, 0, 1, 120, Clr.Line)]
             c[A_Index "e"] := e
+        Ui.Gradient(g, 0, 0, Toast.W, 3, Clr.Accent, Clr.Accent2, 24)
         Toast.Gui := g
         Toast.Ctl := c
         g.Show("Hide w" Ui.S(Toast.W) " h" Ui.S(110))
+        Ui.Chrome(g)
     }
 
     ; kind: ok | info | warn | error
@@ -1906,10 +1942,25 @@ class Toast {
         c["2e"].Move(0, 0, 1, Ui.S(h))
         pos := Toast.Position(Ui.S(Toast.W), Ui.S(h))
         Toast.Gui.Show("NA x" pos[1] " y" pos[2] " w" Ui.S(Toast.W) " h" Ui.S(h))
-        WinSetTransparent(245, "ahk_id " Toast.Gui.Hwnd)
+        Toast.Alpha := 40                                       ; quick fade-in
+        WinSetTransparent(Toast.Alpha, "ahk_id " Toast.Gui.Hwnd)
+        if !IsObject(Toast.FadeFn)
+            Toast.FadeFn := ObjBindMethod(Toast, "Fade")
+        SetTimer(Toast.FadeFn, 16)
         if !IsObject(Toast.Fn)
             Toast.Fn := ObjBindMethod(Toast, "Hide")
         SetTimer(Toast.Fn, -(kind = "warn" || kind = "error" ? 4200 : 2600))
+    }
+
+    static Alpha := 245
+    static FadeFn := ""
+    static Fade() {
+        Toast.Alpha += 50
+        if (Toast.Alpha >= 245) {
+            Toast.Alpha := 245
+            SetTimer(Toast.FadeFn, 0)
+        }
+        try WinSetTransparent(Toast.Alpha, "ahk_id " Toast.Gui.Hwnd)
     }
 
     static Hide() {
@@ -1966,7 +2017,7 @@ class Hud {
         f := (v) => v * sc
         c["title"] := Ui.Txt(g, 16, 10, pw - 50, f(16), "SIEGE PROFILE MANAGER", f(7.5), "Bold", Clr.Mute, Clr.Panel)
         c["dot"] := Ui.Txt(g, pw - 30, 8, 20, f(18), "●", f(10), "Norm", Clr.Green, Clr.Panel, "Right")
-        c["op"] := Ui.Txt(g, 16, 30, pw - 28, f(28), "", f(15), "Bold", Clr.Text, Clr.Panel)
+        c["op"] := Ui.Txt(g, 16, 30, pw - 28, f(28), "", f(15), "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Black")
         c["weapon"] := Ui.Txt(g, 16, 60, pw - 28, f(20), "", f(10.5), "Bold", Clr.Text, Clr.Panel)
         c["scope"] := Ui.Txt(g, 16, 82, pw - 28, f(18), "", f(9), "Norm", Clr.Dim, Clr.Panel)
         c["att"] := Ui.Txt(g, 16, 100, pw - 28, f(18), "", f(9), "Norm", Clr.Dim, Clr.Panel)
@@ -1978,13 +2029,35 @@ class Hud {
         c["t2"] := Ui.Txt(g, 16, 160, pw - 28, f(40), "", f(9.5), "Bold", Clr.Text, Clr.Panel)
         c["t3"] := Ui.Txt(g, 16, 160, pw - 28, f(36), "", f(8.5), "Norm", Clr.Dim, Clr.Panel)
         c["rec"] := Ui.Txt(g, 16, 160, pw - 28, f(20), "", f(9.5), "Bold", Clr.Red, Clr.Panel)
+        cw := Round((pw - 28) / 4)
+        loop 4                                    ; module status dots (recoil / jitter / rapid / slot sync)
+            c["m" A_Index] := Ui.Txt(g, 16 + (A_Index - 1) * cw, 160, cw, f(16), "", f(8), "Bold", Clr.Mute, Clr.Panel)
         c["t2"].Opt("-0x200 -0x4000")            ; several lines: no vertical centring / ellipsis
         c["t3"].Opt("-0x200 -0x4000")
+        Ui.Gradient(g, 0, 0, pw, 3, Clr.Accent, Clr.Accent2, 28)
         Hud.Gui := g
         Hud.Ctl := c
         Hud.PW := pw
         g.Show("Hide w" Ui.S(pw) " h" Ui.S(100))
+        Ui.Chrome(g)
         WinSetTransparent(Cfg.Num("ui.opacity", 235), "ahk_id " g.Hwnd)
+    }
+
+    ; Four small status dots: green = enabled, cyan = firing right now, amber = unavailable, grey = off / unknown.
+    static PlaceMods(y, sc) {
+        c := Hud.Ctl
+        cw := Round((Hud.PW - 28) / 4)
+        b := Live.Burst
+        for i, d in [["RCL", "m_recoil", "recoil"], ["JIT", "m_jitter", ""], ["RPD", "m_rapid", "rapid"], ["SLT", "m_slotsync", ""]] {
+            ms := (Live.Fresh() && Live.Data.Has(d[2])) ? Live.Data[d[2]] : ""
+            if (ms = "ENABLED" && d[3] != "" && b["active"] && b[d[3]] = 1)
+                ms := "ACTIVE"
+            ctl := c["m" i]
+            SetText(ctl, "● " d[1])
+            Ui.Paint(ctl, ms = "ENABLED" ? Clr.Green : ms = "ACTIVE" ? Clr.Accent : ms = "UNAVAILABLE" ? Clr.Amber : Clr.Mute)
+            ctl.Move(Ui.S(16 + (i - 1) * cw), Ui.S(y), Ui.S(cw), Ui.S(16 * sc))
+            ctl.Visible := true
+        }
     }
 
     ; [x, y, w, h] in screen pixels (used by the toast to sit next to the HUD).
@@ -2064,15 +2137,22 @@ class Hud {
                     statusText .= "  ·  idle " Round(Live.AgeMs() / 1000) "s"
             }
         }
+        if (sec.Has("modules") && sec["modules"] && hasData)
+            rows.Push(["MODS", "", "", 18])
         if (statusText != "")
             rows.Push([c["status"], statusText, statusCol, 22])
 
         ; --- layout ---------------------------------------------------------------
-        for n in ["op", "weapon", "scope", "att", "cal", "dbg", "status", "t1", "t2", "t3", "rec"]
+        for n in ["op", "weapon", "scope", "att", "cal", "dbg", "status", "t1", "t2", "t3", "rec", "m1", "m2", "m3", "m4"]
             c[n].Visible := false
         y := 30
         pw := Hud.PW
         for r in rows {
+            if (Type(r[1]) = "String") {                    ; the module-dots row
+                Hud.PlaceMods(y, sc)
+                y += 18 * sc + 2
+                continue
+            }
             ctl := r[1]
             SetText(ctl, r[2])
             Ui.Paint(ctl, r[3])
@@ -2141,6 +2221,8 @@ class Center {
     static Pages := Map()           ; page -> [controls]
     static Nav := Map()
     static NavBar := Map()
+    static Glyph := Map("HOME", "◆", "OPERATORS", "◈", "LOADOUTS", "▤", "CALIBRATION", "⌖", "RECOIL", "◉"
+        , "HUD", "▣", "SETTINGS", "⚙", "HOTKEYS", "⌨", "DIAGNOSTICS", "≣")
     static Chips := []
     static ChipDefs := [["RECOIL", "m_recoil"], ["RAPID FIRE", "m_rapid"], ["JITTER", "m_jitter"]
         , ["SLOT SYNC", "m_slotsync"], ["DETECT", "m_detect"], ["SYSTEM", "m_system"]]
@@ -2196,18 +2278,20 @@ class Center {
 
         ; --- header ---------------------------------------------------------------
         Ui.Rect(g, 0, 0, Center.W, 60, Clr.Panel)
-        Ui.Txt(g, 20, 12, 44, 36, "SPM", 11, "Bold", Clr.Ink, Clr.Accent, "Center")
-        Ui.Txt(g, 76, 11, 380, 24, "SIEGE PROFILE MANAGER", 13, "Bold", Clr.Text, Clr.Panel)
-        Ui.Txt(g, 76, 34, 380, 16, "CONTROL CENTRE   ·   V" App.Version, 8, "Bold", Clr.Mute, Clr.Panel)
+        Ui.Rect(g, 16, 8, 52, 44, Ui.Mix(Clr.Panel, Clr.Accent, 0.35))        ; glow
+        Ui.Rect(g, 18, 10, 48, 40, Ui.Mix(Clr.Panel, Clr.Accent, 0.6))
+        Ui.Txt(g, 20, 12, 44, 36, "SPM", 11, "Bold", Clr.Ink, Clr.Accent, "Center", "Segoe UI Black")
+        Ui.Txt(g, 80, 9, 380, 26, "SIEGE PROFILE MANAGER", 14, "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Black")
+        Ui.Txt(g, 80, 35, 380, 16, "CONTROL CENTRE   ·   V" App.Version, 8, "Bold", Clr.Accent, Clr.Panel)
         Center.Ctl["pill"] := Ui.Txt(g, 470, 18, 300, 26, "", 10, "Bold", Clr.Green, Clr.Panel, "Right")
         Ui.Btn(g, 790, 14, 170, 32, "◂  COMPACT HUD", () => View.SetMode("hud"))
-        Ui.Rect(g, 0, 60, Center.W, 2, Clr.Accent)
+        Ui.Gradient(g, 0, 59, Center.W, 3, Clr.Accent, Clr.Accent2, 64)
         ; --- sidebar --------------------------------------------------------------
         Ui.Rect(g, 0, 61, 176, Center.H - 61, Clr.Panel)
         y := 78
         for name in Center.Names {
             Center.NavBar[name] := Ui.Rect(g, 0, y, 4, 38, Clr.Panel)
-            t := Ui.Txt(g, 4, y, 172, 38, "    " name, 10, "Bold", Clr.Dim, Clr.Panel, "+0x100")
+            t := Ui.Txt(g, 4, y, 172, 38, "   " Center.Glyph.Get(name, "•") "   " name, 10, "Bold", Clr.Dim, Clr.Panel, "+0x100")
             t.OnEvent("Click", Center.OpenPage.Bind(Center, name))
             Center.Nav[name] := t
             y += 42
@@ -2229,6 +2313,7 @@ class Center {
         g.OnEvent("Close", (*) => View.SetMode("hud"))
         g.Show("Hide w" Ui.S(Center.W) " h" Ui.S(Center.H))
         Ui.DarkTitle(g)
+        Ui.Chrome(g, Clr.Panel, Clr.Accent, Clr.Text)          ; Windows 11: rounded, cyan border, dark title bar
         Center.OpenPage(Center.Cur)
     }
 
@@ -2314,73 +2399,65 @@ class Center {
     static BuildHome(g) {
         add := Center.Reg.Bind(Center, "HOME")
         c := Center.Ctl
-        ; live module chips (states straight from the Lua)
+        ; ---- hero: the operator and loadout you are on ----
+        add(Ui.Rect(g, 196, 76, 764, 116, Clr.Panel))
+        for gc in Ui.Gradient(g, 196, 76, 764, 3, Clr.Accent, Clr.Accent2, 48)
+            add(gc)
+        add(Ui.Rect(g, 196, 79, 4, 113, Clr.Accent))
+        c["h_side"] := add(Ui.Txt(g, 218, 92, 400, 18, "", 9, "Bold", Clr.Accent, Clr.Panel))
+        c["h_op"] := add(Ui.Txt(g, 216, 110, 420, 44, "", 28, "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Black"))
+        c["h_lo"] := add(Ui.Txt(g, 218, 158, 420, 22, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        add(Ui.Rect(g, 650, 92, 1, 88, Clr.Line))
+        c["h_p1"] := add(Ui.Txt(g, 668, 88, 284, 26, "", 12, "Bold", Clr.Text, Clr.Panel))
+        c["h_p2"] := add(Ui.Txt(g, 668, 114, 284, 20, "", 8, "Norm", Clr.Dim, Clr.Panel))
+        c["h_s1"] := add(Ui.Txt(g, 668, 140, 284, 26, "", 12, "Bold", Clr.Text, Clr.Panel))
+        c["h_s2"] := add(Ui.Txt(g, 668, 166, 284, 20, "", 8, "Norm", Clr.Dim, Clr.Panel))
+        ; ---- live module chips (states straight from the Lua) ----
         for i, ch in Center.ChipDefs
-            Center.Chips.Push(add(Ui.Txt(g, 196 + (i - 1) * 128, 76, 122, 28, "", 8, "Bold", Clr.Dim, Clr.Panel2, "Center")))
-        Center.Card(add, g, 196, 116, 244, 112, "CONNECTION")
-        c["h_conn"] := add(Ui.Txt(g, 210, 142, 216, 26, "", 12, "Bold", Clr.Green, Clr.Panel))
-        c["h_c1"] := add(Ui.Txt(g, 210, 172, 216, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["h_c2"] := add(Ui.Txt(g, 210, 190, 216, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["h_c3"] := add(Ui.Txt(g, 210, 208, 216, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        Center.Card(add, g, 456, 116, 244, 112, "OPERATOR")
-        c["h_side"] := add(Ui.Txt(g, 470, 142, 216, 18, "", 9, "Bold", Clr.Dim, Clr.Panel))
-        c["h_op"] := add(Ui.Txt(g, 470, 162, 216, 34, "", 18, "Bold", Clr.Text, Clr.Panel))
-        c["h_lo"] := add(Ui.Txt(g, 470, 200, 216, 22, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        Center.Card(add, g, 716, 116, 244, 112, "CALIBRATION")
-        c["h_cal1"] := add(Ui.Txt(g, 730, 144, 216, 20, "", 10, "Bold", Clr.Text, Clr.Panel))
-        c["h_cal2"] := add(Ui.Txt(g, 730, 168, 216, 20, "", 10, "Bold", Clr.Text, Clr.Panel))
-        c["h_cal3"] := add(Ui.Txt(g, 730, 198, 216, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        Center.Card(add, g, 196, 244, 764, 150, "LOADOUT")
-        c["h_p1"] := add(Ui.Txt(g, 210, 272, 420, 28, "", 14, "Bold", Clr.Text, Clr.Panel))
-        c["h_p2"] := add(Ui.Txt(g, 232, 300, 500, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["h_s1"] := add(Ui.Txt(g, 210, 330, 420, 28, "", 14, "Bold", Clr.Text, Clr.Panel))
-        c["h_s2"] := add(Ui.Txt(g, 232, 358, 500, 20, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["h_r1"] := add(Ui.Txt(g, 700, 272, 246, 22, "", 9, "Bold", Clr.Dim, Clr.Panel, "Right"))
-        c["h_r2"] := add(Ui.Txt(g, 700, 296, 246, 22, "", 9, "Norm", Clr.Dim, Clr.Panel, "Right"))
-        Center.Card(add, g, 196, 410, 374, 214, "RECENT CHANGES")
-        c["h_recent"] := add(Ui.List(g, 208, 438, 350, 176, ["When", "What"]))
+            Center.Chips.Push(add(Ui.Txt(g, 196 + (i - 1) * 128, 204, 122, 28, "", 8, "Bold", Clr.Dim, Clr.Panel2, "Center")))
+        ; ---- link + calibration ----
+        Center.Card(add, g, 196, 246, 374, 106, "G HUB LINK")
+        c["h_conn"] := add(Ui.Txt(g, 210, 272, 346, 26, "", 13, "Bold", Clr.Green, Clr.Panel))
+        c["h_c1"] := add(Ui.Txt(g, 210, 300, 346, 16, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        c["h_c2"] := add(Ui.Txt(g, 210, 316, 346, 16, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        c["h_c3"] := add(Ui.Txt(g, 210, 332, 346, 16, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        Center.Card(add, g, 586, 246, 374, 106, "OPERATOR GRID")
+        c["h_cal1"] := add(Ui.Txt(g, 600, 272, 346, 22, "", 10, "Bold", Clr.Text, Clr.Panel))
+        c["h_cal2"] := add(Ui.Txt(g, 600, 296, 346, 22, "", 10, "Bold", Clr.Text, Clr.Panel))
+        c["h_cal3"] := add(Ui.Txt(g, 600, 324, 346, 18, "", 9, "Norm", Clr.Dim, Clr.Panel))
+        ; ---- recent changes + setup checklist ----
+        Center.Card(add, g, 196, 366, 374, 258, "RECENT CHANGES")
+        c["h_recent"] := add(Ui.List(g, 208, 394, 350, 220, ["When", "What"]))
         c["h_recent"].ModifyCol(1, Ui.S(70)), c["h_recent"].ModifyCol(2, Ui.S(266))
-        ; setup checklist: each row = live state + the one-click fix
-        Center.Card(add, g, 586, 410, 374, 214, "SETUP CHECKLIST")
+        Center.Card(add, g, 586, 366, 374, 258, "SETUP CHECKLIST")
         acts := [["LINK", "DIAGNOSE", () => Center.OpenPage("DIAGNOSTICS")], ["CONFIG", "COPY SCRIPT", () => Center.CopyBlock()]
             , ["GRID", "FIX", () => Center.FixGrid()], ["RECOIL", "RECORD", () => Center.OpenPage("RECOIL")]]
         for i, a in acts {
-            c["k_" a[1]] := add(Ui.Txt(g, 600, 438 + (i - 1) * 42, 226, 34, "", 10, "Bold", Clr.Dim, Clr.Panel2))
-            c["kb_" a[1]] := add(Ui.Btn(g, 832, 438 + (i - 1) * 42, 114, 34, a[2], a[3], i = 2 ? "p" : "n"))
+            c["k_" a[1]] := add(Ui.Txt(g, 600, 394 + (i - 1) * 50, 226, 40, "", 10, "Bold", Clr.Dim, Clr.Panel2))
+            c["kb_" a[1]] := add(Ui.Btn(g, 832, 394 + (i - 1) * 50, 114, 40, a[2], a[3], i = 2 ? "p" : "n"))
         }
-        c["h_sync"] := add(Ui.Txt(g, 600, 606, 346, 16, "", 8, "Norm", Clr.Mute, Clr.Panel))
+        c["h_sync"] := add(Ui.Txt(g, 600, 598, 346, 18, "", 8, "Norm", Clr.Mute, Clr.Panel))
     }
 
     static RefreshHome() {
         c := Center.Ctl
         st := Live.Status
         ok := (st = "CONNECTED" || st = "IDLE")
-        ; module chips: green ENABLED, amber ACTIVE/UNAVAILABLE, red DISABLED, grey UNKNOWN
+        has := Live.Data.Count > 0
+        ; module chips: green ENABLED, cyan ACTIVE, amber UNAVAILABLE, grey DISABLED / unknown
         for i, ch in Center.ChipDefs {
             ms := Live.Data.Has(ch[2]) ? Live.Data[ch[2]] : ""
             bb := Live.Burst
             if (ms = "ENABLED" && bb["active"] && ((i = 1 && bb["recoil"]) || (i = 2 && bb["rapid"])))
                 ms := "ACTIVE"
             SetText(Center.Chips[i], "● " ch[1])
-            Ui.Paint(Center.Chips[i], ms = "ENABLED" ? Clr.Green : ms = "ACTIVE" ? Clr.Amber : ms = "UNAVAILABLE" ? Clr.Amber : ms = "DISABLED" ? Clr.Red : Clr.Mute)
+            Ui.Paint(Center.Chips[i], ms = "ENABLED" ? Clr.Green : ms = "ACTIVE" ? Clr.Accent : ms = "UNAVAILABLE" ? Clr.Amber : ms = "DISABLED" ? Clr.Red : Clr.Mute)
         }
-        SetText(c["h_conn"], st = "CONNECTED" ? "● CONNECTED" : st = "IDLE" ? "● CONNECTED (idle)" : st = "LOST" ? "● SIGNAL LOST"
-            : st = "MISMATCH" ? "● PROTOCOL MISMATCH" : "● WAITING")
-        Ui.Paint(c["h_conn"], ok ? Clr.Green : st = "LOST" ? Clr.Red : Clr.Amber)
-        age := Live.AgeMs()
-        SetText(c["h_c1"], "Last packet   " (age >= 0 ? Round(age / 1000, 1) " s ago" : "never"))
-        SetText(c["h_c2"], "Session   " (Live.Session != "" ? SubStr(Live.Session, 1, 8) : "-") "   #" Live.Seq)
-        SetText(c["h_c3"], Live.StatusWhy != "" ? Live.StatusWhy : "Protocol v" (Live.Protocol ? Live.Protocol : "-"))
-        has := Live.Data.Count > 0
-        fav := has && IndexOf(Cfg.Get("favorites"), Live.OpName()) ? "★ " : ""
-        SetText(c["h_side"], has ? Db.SideLabel(Live.Side()) " SIDE" : "-")
-        SetText(c["h_op"], has ? fav StrUpper(Live.OpName()) : "-")
-        SetText(c["h_lo"], has ? "Loadout  " Live.Get("loadout", "-") : "")
-        for side, n in Map("attackers", "h_cal1", "defenders", "h_cal2") {
-            SetText(c[n], Db.SideLabel(side) "   " Calib.Long(side))
-            Ui.Paint(c[n], Calib.Color(side))
-        }
-        SetText(c["h_cal3"], Cfg.Get("game.resW") "×" Cfg.Get("game.resH") "  ·  " Calib.Mode())
+        ; hero
+        fav := has && IndexOf(Cfg.Get("favorites"), Live.OpName()) ? "★  " : ""
+        SetText(c["h_side"], has ? Db.SideLabel(Live.Side()) "  SIDE" : "WAITING FOR G HUB")
+        SetText(c["h_op"], has ? fav StrUpper(Live.OpName()) : "—")
+        SetText(c["h_lo"], has ? "Loadout  " Live.Get("loadout", "-") "     ·     System " (Live.Get("enabled") = "1" ? "ON" : "OFF") : "Press RALT + left click once")
         active := Live.Slot()
         for kind, ids in Map("primary", ["h_p1", "h_p2"], "secondary", ["h_s1", "h_s2"]) {
             w := Live.Get(kind, "-")
@@ -2388,14 +2465,23 @@ class Center {
             SetText(c[ids[1]], has ? (isA ? "►  " : "    ") StrUpper(kind) "   " w : "")
             Ui.Paint(c[ids[1]], isA ? Clr.Text : Clr.Dim)
             if (has && w != "NONE" && w != "-")
-                SetText(c[ids[2]], "Sight " Center.A(Live.Att(kind, "scope")) "   ·   Barrel " Center.A(Live.Att(kind, "barrel"))
-                    . "   ·   Grip " Center.A(Live.Att(kind, "grip")))
+                SetText(c[ids[2]], "      " Center.A(Live.Att(kind, "scope")) "  ·  " Center.A(Live.Att(kind, "barrel")) "  ·  " Center.A(Live.Att(kind, "grip")))
             else
                 SetText(c[ids[2]], "")
         }
-        SetText(c["h_r1"], has ? "ACTIVE SLOT  " StrUpper(active) : "")
-        SetText(c["h_r2"], has ? (Live.Get("enabled") = "1" ? "System ON" : "System OFF") : "")
-        Ui.Paint(c["h_r2"], Live.Get("enabled") = "1" ? Clr.Green : Clr.Red)
+        ; link + grid
+        SetText(c["h_conn"], st = "CONNECTED" ? "● CONNECTED" : st = "IDLE" ? "● CONNECTED (idle)" : st = "LOST" ? "● SIGNAL LOST"
+            : st = "MISMATCH" ? "● PROTOCOL MISMATCH" : "● WAITING")
+        Ui.Paint(c["h_conn"], ok ? Clr.Green : st = "LOST" ? Clr.Red : Clr.Amber)
+        age := Live.AgeMs()
+        SetText(c["h_c1"], "Last packet   " (age >= 0 ? Round(age / 1000, 1) " s ago" : "never"))
+        SetText(c["h_c2"], "Session   " (Live.Session != "" ? SubStr(Live.Session, 1, 8) : "-") "   #" Live.Seq)
+        SetText(c["h_c3"], Live.StatusWhy != "" ? Live.StatusWhy : "Protocol v" (Live.Protocol ? Live.Protocol : "-"))
+        for side, n in Map("attackers", "h_cal1", "defenders", "h_cal2") {
+            SetText(c[n], Db.SideLabel(side) "   " Calib.Long(side))
+            Ui.Paint(c[n], Calib.Color(side))
+        }
+        SetText(c["h_cal3"], Cfg.Get("game.resW") "×" Cfg.Get("game.resH") "  ·  " Calib.Mode())
         lv := c["h_recent"]
         lv.Delete()
         loop Live.Recent.Length {
@@ -2404,8 +2490,7 @@ class Center {
         }
         lc := Sync.LuaConfig()
         ; --- setup checklist -------------------------------------------------------------
-        linkOk := (st = "CONNECTED" || st = "IDLE")
-        Center.Row("LINK", linkOk ? 1 : st = "LOST" ? -1 : 0, linkOk ? "G HUB linked" : st = "LOST" ? "G HUB signal lost" : "Waiting for G HUB")
+        Center.Row("LINK", ok ? 1 : st = "LOST" ? -1 : 0, ok ? "G HUB linked" : st = "LOST" ? "G HUB signal lost" : "Waiting for G HUB")
         Center.Row("CONFIG", lc[1] = "OK" ? 1 : lc[1] = "UNKNOWN" ? 0 : -1
             , lc[1] = "OK" ? "Config is in the game" : lc[1] = "PENDING" ? "New changes not pasted" : lc[1] = "OLD" ? "Game has an older config" : lc[1] = "NONE" ? "Config not pasted yet" : "Waiting for G HUB")
         ll := Calib.LuaLast
@@ -2917,16 +3002,16 @@ class Center {
         c["h_sc"].OnEvent("Change", (ctrl, *) => (Cfg.Set("ui.hudScale", ctrl.Value / 100), View.RebuildSoon()))
         add(Ui.Txt(g, 196, 330, 300, 20, "SHOW ON THE HUD", 8, "Bold", Clr.Mute))
         for i, pair in [["operator", "Operator"], ["weapon", "Weapon"], ["attachments", "Attachments"]
-            , ["connection", "Connection status"], ["calibration", "Calibration"], ["debug", "Debug information"]] {
+            , ["connection", "Connection status"], ["calibration", "Calibration"], ["debug", "Debug information"], ["modules", "Module status dots"]] {
             tg := Toggle(g, 196 + Mod(i - 1, 2) * 260, 354 + ((i - 1) // 2) * 30, 250, pair[2], false, Center.SecSet.Bind(Center, pair[1]))
             Center.Toggles["s_" pair[1]] := tg
             add(tg.Ctl)
         }
-        Center.Toggles["h_notif"] := Toggle(g, 196, 460, 300, "Show notifications", true, (v) => (Cfg.Set("ui.notifications", v), View.Changed()))
+        Center.Toggles["h_notif"] := Toggle(g, 196, 484, 300, "Show notifications", true, (v) => (Cfg.Set("ui.notifications", v), View.Changed()))
         add(Center.Toggles["h_notif"].Ctl)
-        add(Ui.Btn(g, 196, 504, 200, 32, "TEST NOTIFICATION", () => Toast.Show("ok", "✓ OPERATOR DETECTED", "ZOFIA", "M762", "SUPPRESSOR • HORIZONTAL"), "p"))
-        add(Ui.Btn(g, 406, 504, 200, 32, "RESET HUD SETTINGS", () => Center.HudReset()))
-        add(Ui.Txt(g, 196, 552, 700, 40, "The compact HUD is click-through and never takes focus. Custom position: enter screen pixels and press APPLY.", 9, "Norm", Clr.Mute))
+        add(Ui.Btn(g, 196, 526, 200, 32, "TEST NOTIFICATION", () => Toast.Show("ok", "✓ OPERATOR DETECTED", "ZOFIA", "M762", "SUPPRESSOR • HORIZONTAL"), "p"))
+        add(Ui.Btn(g, 406, 526, 200, 32, "RESET HUD SETTINGS", () => Center.HudReset()))
+        add(Ui.Txt(g, 196, 574, 700, 40, "The compact HUD is click-through and never takes focus. Custom position: enter screen pixels and press APPLY.", 9, "Norm", Clr.Mute))
     }
 
     static HudSet(path, v) {
@@ -2973,7 +3058,7 @@ class Center {
         c["h_sc"].Value := Round(Cfg.Num("ui.hudScale", 1.0) * 100)
         if (c["h_x"].Text = "")
             c["h_x"].Text := Cfg.Num("ui.hudX", 40), c["h_y"].Text := Cfg.Num("ui.hudY", 40)
-        for key in ["operator", "weapon", "attachments", "connection", "calibration", "debug"]
+        for key in ["operator", "weapon", "attachments", "connection", "calibration", "debug", "modules"]
             Center.Toggles["s_" key].Set(Cfg.Get("ui.sections")[key])
         Center.Toggles["h_notif"].Set(Cfg.Get("ui.notifications", 1))
         Center.Guard := false
@@ -4643,9 +4728,10 @@ class Wizard {
         add := (pg, ctrl) => (Wizard.Pages[pg].Push(ctrl), ctrl)
 
         Ui.Rect(g, 0, 0, 640, 84, Clr.Panel)
-        Ui.Rect(g, 0, 84, 640, 2, Clr.Accent)
-        Ui.Txt(g, 24, 14, 44, 34, "SPM", 11, "Bold", Clr.Ink, Clr.Accent, "Center")
-        Ui.Txt(g, 80, 12, 400, 26, "QUICK SETUP", 14, "Bold", Clr.Text, Clr.Panel)
+        Ui.Gradient(g, 0, 83, 640, 3, Clr.Accent, Clr.Accent2, 40)
+        Ui.Rect(g, 20, 10, 52, 44, Ui.Mix(Clr.Panel, Clr.Accent, 0.35))
+        Ui.Txt(g, 24, 14, 44, 36, "SPM", 11, "Bold", Clr.Ink, Clr.Accent, "Center", "Segoe UI Black")
+        Ui.Txt(g, 84, 10, 400, 30, "QUICK SETUP", 15, "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Black")
         c["prog"] := Ui.Mono(g, 80, 44, 380, 22, "", 11, Clr.Accent, Clr.Panel)
         c["cnt"] := Ui.Txt(g, 480, 14, 136, 26, "", 11, "Bold", Clr.Dim, Clr.Panel, "Right")
 
@@ -4690,6 +4776,7 @@ class Wizard {
         Wizard.Visible := true
         g.Show("w" Ui.S(640) " h" Ui.S(500))
         Ui.DarkTitle(g)
+        Ui.Chrome(g, Clr.Panel, Clr.Accent, Clr.Text)
         Wizard.ReadIni(true)
         Wizard.Render()
     }
@@ -4837,6 +4924,16 @@ class Wizard {
         }
         Startup.Set(Wizard.Tg["start"].On)
         Cfg.Dirty()
+    }
+}
+
+; Slow "live" pulse of the HUD dot while the G HUB link is healthy.
+class Anim {
+    static P := false
+    static Tick() {
+        Anim.P := !Anim.P
+        if (Hud.Shown && Live.Status = "CONNECTED" && Hud.Ctl.Has("dot"))
+            Ui.Paint(Hud.Ctl["dot"], Anim.P ? Clr.Green : Clr.GreenDim)
     }
 }
 
@@ -4990,6 +5087,7 @@ SlotSync.Set("PRIMARY", false)                       ; baseline: lock key OFF = 
 SetTimer(() => Live.Poll(), 15)                  ; receives packets (DBWIN handshake needs quick service)
 SetTimer(() => Live.Tick(), 1000)                ; link health
 SetTimer(() => Hud.KeepOnTop(), 2000)            ; borderless games can steal the Z-order
+SetTimer(() => Anim.Tick(), 700)                 ; "live" pulse
 SetTimer(() => (Center.Visible && (Center.Cur = "HOME" || Center.Cur = "DIAGNOSTICS") ? Center.RefreshPage() : 0), 1000)
 OnExit((*) => Cfg.SaveNow())
 OnError(AppError)                                ; any other uncaught error: log it, no modal box, keep running
