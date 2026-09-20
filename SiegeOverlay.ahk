@@ -2339,12 +2339,15 @@ class Center {
         Center.Card(add, g, 196, 410, 374, 214, "RECENT CHANGES")
         c["h_recent"] := add(Ui.List(g, 208, 438, 350, 176, ["When", "What"]))
         c["h_recent"].ModifyCol(1, Ui.S(70)), c["h_recent"].ModifyCol(2, Ui.S(266))
-        Center.Card(add, g, 586, 410, 374, 214, "QUICK ACTIONS")
-        add(Ui.Btn(g, 600, 438, 346, 32, "COPY FULL LUA SCRIPT + MY CONFIG", () => Center.CopyBlock(), "p"))
-        add(Ui.Btn(g, 600, 474, 346, 32, "RECORD MY RECOIL", () => Center.OpenPage("RECOIL")))
-        add(Ui.Btn(g, 600, 510, 346, 32, "COPY DIAGNOSTIC REPORT", () => Center.CopyReport()))
-        c["h_sync"] := add(Ui.Txt(g, 600, 550, 346, 66, "", 9, "Norm", Clr.Dim, Clr.Panel))
-        c["h_sync"].Opt("-0x200 -0x4000")
+        ; setup checklist: each row = live state + the one-click fix
+        Center.Card(add, g, 586, 410, 374, 214, "SETUP CHECKLIST")
+        acts := [["LINK", "DIAGNOSE", () => Center.OpenPage("DIAGNOSTICS")], ["CONFIG", "COPY SCRIPT", () => Center.CopyBlock()]
+            , ["GRID", "FIX", () => Center.FixGrid()], ["RECOIL", "RECORD", () => Center.OpenPage("RECOIL")]]
+        for i, a in acts {
+            c["k_" a[1]] := add(Ui.Txt(g, 600, 438 + (i - 1) * 42, 226, 34, "", 10, "Bold", Clr.Dim, Clr.Panel2))
+            c["kb_" a[1]] := add(Ui.Btn(g, 832, 438 + (i - 1) * 42, 114, 34, a[2], a[3], i = 2 ? "p" : "n"))
+        }
+        c["h_sync"] := add(Ui.Txt(g, 600, 606, 346, 16, "", 8, "Norm", Clr.Mute, Clr.Panel))
     }
 
     static RefreshHome() {
@@ -2399,8 +2402,34 @@ class Center {
             lv.Add("", e["t"], e["text"])
         }
         lc := Sync.LuaConfig()
+        ; --- setup checklist -------------------------------------------------------------
+        linkOk := (st = "CONNECTED" || st = "IDLE")
+        Center.Row("LINK", linkOk ? 1 : st = "LOST" ? -1 : 0, linkOk ? "G HUB linked" : st = "LOST" ? "G HUB signal lost" : "Waiting for G HUB")
+        Center.Row("CONFIG", lc[1] = "OK" ? 1 : lc[1] = "UNKNOWN" ? 0 : -1
+            , lc[1] = "OK" ? "Config is in the game" : lc[1] = "PENDING" ? "New changes not pasted" : lc[1] = "OLD" ? "Game has an older config" : lc[1] = "NONE" ? "Config not pasted yet" : "Waiting for G HUB")
+        ll := Calib.LuaLast
+        Center.Row("GRID", !ll.Count ? 0 : ll["agree"] ? 1 : -1
+            , !ll.Count ? "Grid untested: RSHIFT+click a tile" : ll["agree"] ? "Operator grid verified" : "Grid mismatch (tap FIX)")
+        pk := Live.Get("recoil_profile", "")
+        Center.Row("RECOIL", pk = "" ? 0 : (pk = "LEARNED" ? 1 : 0), pk = "" ? "Recoil: no data yet" : "Recoil profile: " pk)
         SetText(c["h_sync"], lc[2])
-        Ui.Paint(c["h_sync"], lc[1] = "OK" ? Clr.Green : lc[1] = "UNKNOWN" ? Clr.Dim : Clr.Amber)
+    }
+
+    ; One checklist row: state 1 = good (green), 0 = pending (grey), -1 = needs attention (amber/red)
+    static Row(id, state, text) {
+        c := Center.Ctl
+        SetText(c["k_" id], (state = 1 ? "  ✓  " : state = -1 ? "  ⚠  " : "  …  ") text)
+        Ui.Paint(c["k_" id], state = 1 ? Clr.Green : state = -1 ? Clr.Amber : Clr.Dim)
+    }
+
+    ; "FIX" for the grid: forget grids saved here so the Lua falls back to its own presets, then hand over the script.
+    static FixGrid() {
+        ll := Calib.LuaLast
+        if (ll.Count && !ll["agree"]) {
+            Calib.ResetBoth()
+            Center.CopyBlock()
+        } else
+            Center.StartTest()
     }
 
     static A(v) => v = "" ? "n/a" : v = "NONE" ? "none" : v
@@ -3192,7 +3221,8 @@ class Center {
     static BuildSettings(g) {
         add := Center.Reg.Bind(Center, "SETTINGS")
         c := Center.Ctl
-        add(Ui.Txt(g, 196, 76, 300, 20, "GAME PROFILE", 8, "Bold", Clr.Mute))
+        add(Ui.Txt(g, 196, 76, 200, 20, "GAME PROFILE", 8, "Bold", Clr.Mute))
+        add(Ui.Btn(g, 402, 72, 166, 26, "READ FROM SIEGE", () => Center.ReadSiege()))
         y := 100
         for row in [["dpi", "DPI", "game.dpi", 50, 32000], ["sh", "Horizontal sensitivity", "game.sensH", 0.1, 100]
             , ["sv", "Vertical sensitivity", "game.sensV", 0.1, 100], ["fov", "FOV", "game.fov", 40, 140], ["ads", "ADS", "game.ads", 1, 200]] {
@@ -3227,7 +3257,7 @@ class Center {
         c["s_launch"].OnEvent("Change", (ctrl, *) => (Center.Guard ? 0 : Cfg.Set("ui.launch", ["hud", "center", "hidden"][ctrl.Value])))
         Center.Toggles["s_rem"] := Toggle(g, 596, 138, 300, "Remember window position", true, (v) => (Center.Guard ? 0 : Cfg.Set("ui.rememberPos", v)))
         add(Center.Toggles["s_rem"].Ctl)
-        Center.Toggles["s_not"] := Toggle(g, 596, 168, 300, "Show notifications", true, (v) => (Center.Guard ? 0 : (Cfg.Set("ui.notifications", v), View.Changed())))
+        Center.Toggles["s_not"] := Toggle(g, 596, 168, 300, "Launch with Windows", false, (v) => (Center.Guard ? 0 : Startup.Set(v)))
         add(Center.Toggles["s_not"].Ctl)
         c["s_scl"] := add(Ui.Txt(g, 596, 204, 364, 20, "", 8, "Bold", Clr.Mute))
         c["s_scale"] := add(Center.Slider(g, 596, 226, 364, "60-200", 100))
@@ -3273,6 +3303,25 @@ class Center {
         }
     }
 
+    ; Fills sensitivity / FOV / ADS / resolution from Siege's own GameSettings.ini (DPI is not in that file).
+    static ReadSiege() {
+        ini := SiegeIni.Detect()
+        g := Cfg.Data["game"]
+        n := 0
+        for k in ["sensH", "sensV", "fov", "ads"]
+            if ini.Has(k) {
+                g[k] := ini[k]
+                n++
+            }
+        if (ini.Has("res") && RegExMatch(ini["res"], "^(\d+)x(\d+)$", &m)) {
+            g["resW"] := Integer(m[1]), g["resH"] := Integer(m[2])
+            n++
+        }
+        Cfg.Dirty()
+        Center.RefreshSettings()
+        Toast.Show(n ? "ok" : "warn", n ? "✓ READ FROM SIEGE" : "⚠ SIEGE SETTINGS NOT FOUND", n ? n " value(s) updated" : "Enter them by hand", "", "")
+    }
+
     static DetectRes() {
         Cfg.Set("game.resW", A_ScreenWidth), Cfg.Set("game.resH", A_ScreenHeight)
         Center.RefreshSettings()
@@ -3312,7 +3361,7 @@ class Center {
         }
         c["s_launch"].Choose(IndexOf(["hud", "center", "hidden"], Cfg.Get("ui.launch", "hud")) || 1)
         Center.Toggles["s_rem"].Set(Cfg.Get("ui.rememberPos", 1))
-        Center.Toggles["s_not"].Set(Cfg.Get("ui.notifications", 1))
+        Center.Toggles["s_not"].Set(Startup.IsOn())
         pct := Round(Cfg.Num("ui.scale", 1.0) * 100)
         c["s_scale"].Value := pct
         SetText(c["s_scl"], "UI SCALE   " pct "%")
@@ -4388,109 +4437,212 @@ class Diagnostics {
 }
 
 ; ------------------------------------------------------------------------------
-; 20. FIRST-RUN SETUP WIZARD  (16 steps; every value is validated before it is saved)
+; 20. QUICK SETUP  (3 screens; everything that can be detected is detected)
+;   1 SETTINGS     read from Siege's own GameSettings.ini (sensitivity, FOV, resolution); you add the DPI
+;   2 PREFERENCES  attachment defaults, HUD position, launch with Windows
+;   3 INSTALL      the finished Lua script is copied for you; the screen turns green by itself as soon
+;                  as G HUB reports that it loaded this exact config
+;   Operator-grid calibration is NOT part of setup: the Lua ships presets, and the Home checklist tells
+;   you (and fixes it in one click) if a tile ever detects wrongly.
 ; ------------------------------------------------------------------------------
+class SiegeIni {
+    ; Finds the newest %Documents%\My Games\Rainbow Six - Siege\<id>\GameSettings.ini and reads what it can.
+    ; Returns a Map (possibly empty). Keys: path, res(WxH), sensH, sensV, fov, ads. Key names are matched
+    ; loosely because Ubisoft has renamed them between seasons; anything not found is simply left out.
+    static Detect() {
+        out := Map()
+        root := A_MyDocuments "\My Games\Rainbow Six - Siege"
+        best := "", bestT := 0
+        try {
+            loop files, root "\*", "D" {
+                p := A_LoopFileFullPath "\GameSettings.ini"
+                if FileExist(p) {
+                    t := FileGetTime(p, "M")
+                    if (t > bestT)
+                        bestT := t, best := p
+                }
+            }
+        }
+        if (best = "")
+            return out
+        try text := FileRead(best, "UTF-8")
+        catch
+            return out
+        kv := Map(), w := 0, h := 0
+        for line in StrSplit(text, "`n", "`r") {
+            eq := InStr(line, "=")
+            if (eq < 2 || SubStr(line, 1, 1) = "[")
+                continue
+            k := StrLower(Trim(SubStr(line, 1, eq - 1)))
+            v := Trim(SubStr(line, eq + 1))
+            if !IsNumber(v)
+                continue
+            kv[k] := v + 0
+        }
+        for k, v in kv {
+            if (InStr(k, "yaw") && InStr(k, "sens") && !out.Has("sensH"))
+                out["sensH"] := v
+            else if (InStr(k, "pitch") && InStr(k, "sens") && !out.Has("sensV"))
+                out["sensV"] := v
+            else if ((k = "defaultfov" || k = "fov") && !out.Has("fov"))
+                out["fov"] := Round(v, 1)
+            else if (k = "resolutionwidth" || k = "resolution_width")
+                w := v
+            else if (k = "resolutionheight" || k = "resolution_height")
+                h := v
+            else if ((InStr(k, "ads") || InStr(k, "aimdownsight")) && InStr(k, "sens") && !InStr(k, "multiplier") && !out.Has("ads"))
+                out["ads"] := v
+        }
+        if (w > 0 && h > 0)
+            out["res"] := Integer(w) "x" Integer(h)
+        if out.Count
+            out["path"] := best
+        return out
+    }
+}
+
+class Startup {
+    static Link := A_Startup "\SiegeProfileManager.lnk"
+    static IsOn() => FileExist(Startup.Link) ? true : false
+    static Set(on) {
+        try {
+            if on
+                FileCreateShortcut(A_ScriptFullPath, Startup.Link, A_ScriptDir, "", "Siege Profile Manager")
+            else if FileExist(Startup.Link)
+                FileDelete(Startup.Link)
+        } catch as e
+            Diag.Err(e, "startup")
+    }
+}
+
 class Wizard {
     static Gui := ""
     static Ctl := Map()
-    static Step := 1
+    static Page := 1
     static Visible := false
-    static Steps := []
-
-    static Init() {
-        Wizard.Steps := [
-            Map("t", "Welcome", "k", "info", "b", "This wizard sets up Siege Profile Manager once.`n`nYour answers are stored on this PC and survive restarts. You can re-run it any time from HOME > RUN SETUP WIZARD."),
-            Map("t", "Resolution", "k", "res", "b", "Your in-game resolution (width x height). Press AUTO to use this monitor."),
-            Map("t", "Mouse DPI", "k", "num", "p", "game.dpi", "lo", 50, "hi", 32000, "b", "The DPI of your mouse (as set in G HUB)."),
-            Map("t", "Horizontal sensitivity", "k", "num", "p", "game.sensH", "lo", 0.1, "hi", 100, "b", "Siege horizontal mouse sensitivity."),
-            Map("t", "Vertical sensitivity", "k", "num", "p", "game.sensV", "lo", 0.1, "hi", 100, "b", "Siege vertical mouse sensitivity."),
-            Map("t", "Field of view", "k", "num", "p", "game.fov", "lo", 40, "hi", 140, "b", "Siege FOV (60 - 90)."),
-            Map("t", "ADS sensitivity", "k", "num", "p", "game.ads", "lo", 1, "hi", 200, "b", "Siege ADS mouse sensitivity modifier."),
-            Map("t", "Preferred scope", "k", "pref", "p", "scope", "b", "Used whenever a weapon is loaded for the first time. AUTO = the first sight the weapon offers."),
-            Map("t", "Preferred barrel", "k", "pref", "p", "barrel", "b", "Used when the weapon can equip it; otherwise the next best barrel is chosen."),
-            Map("t", "Preferred grip", "k", "pref", "p", "grip", "b", "Used when the weapon can equip it."),
-            Map("t", "Attacker calibration", "k", "cal", "side", "attackers", "b", "Open the ATTACKER operator selector in Siege. Press START, then hover the OUTER top-left corner of the first tile and press the capture key, then the OUTER bottom-right corner of the last tile (row 7, column 7) and press it again."),
-            Map("t", "Defender calibration", "k", "cal", "side", "defenders", "b", "Same as before, on the DEFENDER selector."),
-            Map("t", "Detection test", "k", "test", "b", "Move the cursor over the operator selector. The name below must match the tile under the cursor. Use the side button to test the other grid."),
-            Map("t", "HUD position", "k", "hud", "b", "Where the compact HUD sits on screen. You can fine-tune everything later on the HUD page."),
-            Map("t", "Save configuration", "k", "save", "b", "Everything is saved on this PC automatically. To use it inside G HUB, press the button: it copies your whole Lua script with your config merged in. Select all in the G HUB script, paste, save."),
-            Map("t", "Finished", "k", "done", "b", "You are ready. F8 switches between the compact HUD and the control centre, F9 hides everything.")
-        ]
-    }
+    static Pages := Map()
+    static Installed := false
+    static Ini := Map()
+    static Tg := Map()
 
     static Start() {
-        if !Wizard.Steps.Length
-            Wizard.Init()
         if IsObject(Wizard.Gui)
             try Wizard.Gui.Destroy()
-        g := Gui("+AlwaysOnTop -DPIScale", "Siege Profile Manager - Setup")
+        g := Gui("+AlwaysOnTop -DPIScale", "Siege Profile Manager - Quick setup")
         g.MarginX := 0, g.MarginY := 0
         g.BackColor := Clr.Bg
         Wizard.Gui := g
+        Wizard.Pages := Map(1, [], 2, [], 3, [])
+        Wizard.Installed := false
+        Wizard.Tg := Map()
         c := Map()
+        add := (pg, ctrl) => (Wizard.Pages[pg].Push(ctrl), ctrl)
+
         Ui.Rect(g, 0, 0, 640, 84, Clr.Panel)
-        c["prog"] := Ui.Mono(g, 24, 14, 592, 20, "", 11, Clr.Green, Clr.Panel)
-        c["cnt"] := Ui.Txt(g, 24, 42, 592, 24, "", 10, "Bold", Clr.Dim, Clr.Panel)
-        c["title"] := Ui.Txt(g, 24, 100, 592, 34, "", 16, "Bold", Clr.Text, Clr.Bg)
-        c["body"] := Ui.Txt(g, 24, 140, 592, 100, "", 10, "Norm", Clr.Dim, Clr.Bg)
-        c["body"].Opt("-0x200 -0x4000")
-        c["in"] := Ui.Edit(g, 24, 252, 240, 28)
-        c["dd"] := Ui.Drop(g, 24, 252, 300, [])
-        c["b1"] := Ui.Btn(g, 24, 296, 260, 34, "", () => Wizard.Action(), "p")
-        c["ex"] := Ui.Mono(g, 24, 344, 592, 76, "", 10, Clr.Text, Clr.Bg)
-        c["back"] := Ui.Btn(g, 24, 430, 110, 34, "◂ BACK", () => Wizard.Go(-1))
-        c["skip"] := Ui.Btn(g, 380, 430, 110, 34, "SKIP", () => Wizard.Go(1, true))
-        c["next"] := Ui.Btn(g, 506, 430, 110, 34, "NEXT ▸", () => Wizard.Go(1), "p")
+        Ui.Rect(g, 0, 84, 640, 2, Clr.Green)
+        Ui.Txt(g, 24, 14, 44, 34, "SPM", 11, "Bold", "0B1A10", Clr.Green, "Center")
+        Ui.Txt(g, 80, 12, 400, 26, "QUICK SETUP", 14, "Bold", Clr.Text, Clr.Panel)
+        c["prog"] := Ui.Mono(g, 80, 44, 380, 22, "", 11, Clr.Green, Clr.Panel)
+        c["cnt"] := Ui.Txt(g, 480, 14, 136, 26, "", 11, "Bold", Clr.Dim, Clr.Panel, "Right")
+
+        ; ---- page 1: settings -------------------------------------------------------
+        add(1, c["t1"] := Ui.Txt(g, 24, 104, 592, 30, "", 15, "Bold", Clr.Text))
+        add(1, c["src"] := Ui.Txt(g, 24, 136, 592, 22, "", 9, "Bold", Clr.Dim))
+        fields := [["res", "Resolution", 24, 178], ["dpi", "Mouse DPI", 24, 222], ["ads", "ADS", 24, 266]
+            , ["sh", "Horizontal sens", 328, 178], ["sv", "Vertical sens", 328, 222], ["fov", "FOV", 328, 266]]
+        for f in fields {
+            add(1, Ui.Txt(g, f[3], f[4] + 2, 150, 24, f[2], 9, "Bold", Clr.Dim))
+            c["e_" f[1]] := add(1, Ui.Edit(g, f[3] + 150, f[4], 130, 28))
+        }
+        add(1, Ui.Txt(g, 24, 314, 592, 40, "DPI is your mouse DPI as set in G HUB. Everything here can be changed later in Settings.", 9, "Norm", Clr.Mute))
+        c["t1b"] := add(1, Ui.Btn(g, 24, 366, 250, 32, "READ FROM SIEGE AGAIN", () => Wizard.ReadIni()))
+        ; ---- page 2: preferences -----------------------------------------------------
+        add(2, Ui.Txt(g, 24, 104, 592, 30, "Your defaults", 15, "Bold", Clr.Text))
+        add(2, Ui.Txt(g, 24, 136, 592, 22, "Used the first time a weapon loads. The Lua only ever picks attachments the weapon can equip.", 9, "Norm", Clr.Mute))
+        y := 176
+        for row in [["scope", "Preferred sight", Db.AllScopes()], ["barrel", "Preferred barrel", LoadoutMgr.BarrelChain], ["grip", "Preferred grip", LoadoutMgr.GripChain]] {
+            add(2, Ui.Txt(g, 24, y + 2, 170, 24, row[2], 9, "Bold", Clr.Dim))
+            c["d_" row[1]] := add(2, Ui.Drop(g, 200, y, 250, row[3]))
+            y += 44
+        }
+        add(2, Ui.Txt(g, 24, y + 2, 170, 24, "HUD position", 9, "Bold", Clr.Dim))
+        c["d_hud"] := add(2, Ui.Drop(g, 200, y, 250, ["Top Left", "Top Right", "Bottom Left", "Bottom Right"]))
+        Wizard.Tg["start"] := Toggle(g, 24, y + 52, 400, "Start automatically with Windows", true, (v) => 0)
+        add(2, Wizard.Tg["start"].Ctl)
+        ; ---- page 3: install ---------------------------------------------------------
+        add(3, Ui.Txt(g, 24, 104, 592, 30, "Install into G HUB", 15, "Bold", Clr.Text))
+        c["i1"] := add(3, Ui.Txt(g, 24, 148, 592, 30, "", 11, "Bold", Clr.Text))
+        c["i2"] := add(3, Ui.Txt(g, 24, 182, 592, 30, "", 11, "Bold", Clr.Text))
+        c["i3"] := add(3, Ui.Txt(g, 24, 216, 592, 30, "", 11, "Bold", Clr.Dim))
+        c["i4"] := add(3, Ui.Txt(g, 24, 262, 592, 60, "", 9, "Norm", Clr.Mute))
+        c["i4"].Opt("-0x200 -0x4000")
+        c["i5"] := add(3, Ui.Btn(g, 24, 340, 250, 34, "COPY THE SCRIPT AGAIN", () => Wizard.Install(), "p"))
+        ; ---- navigation ----------------------------------------------------------------
+        c["back"] := Ui.Btn(g, 24, 444, 110, 36, "◂ BACK", () => Wizard.Go(-1))
+        c["next"] := Ui.Btn(g, 486, 444, 130, 36, "NEXT ▸", () => Wizard.Go(1), "p")
         Wizard.Ctl := c
         g.OnEvent("Close", (*) => Wizard.Close())
-        Wizard.Step := 1
+        Wizard.Page := 1
         Wizard.Visible := true
-        g.Show("w" Ui.S(640) " h" Ui.S(480))
+        g.Show("w" Ui.S(640) " h" Ui.S(500))
         Ui.DarkTitle(g)
+        Wizard.ReadIni(true)
         Wizard.Render()
     }
 
     static Close() {
-        Calib.SetTesting(false)
         Wizard.Visible := false
         try Wizard.Gui.Hide()
     }
 
+    ; Fills page 1 from what the app already knows: Siege's settings file first, then the Lua's report, then defaults.
+    static ReadIni(quiet := false) {
+        c := Wizard.Ctl
+        ini := SiegeIni.Detect()
+        Wizard.Ini := ini
+        g := Cfg.Data["game"]
+        pick := (iniKey, cfgKey) => ini.Has(iniKey) ? ini[iniKey] : g[cfgKey]
+        c["e_res"].Text := ini.Has("res") ? ini["res"] : A_ScreenWidth "x" A_ScreenHeight
+        c["e_dpi"].Text := g["dpi"]
+        c["e_sh"].Text := pick("sensH", "sensH")
+        c["e_sv"].Text := pick("sensV", "sensV")
+        c["e_fov"].Text := pick("fov", "fov")
+        c["e_ads"].Text := pick("ads", "ads")
+        n := 0
+        for k in ["res", "sensH", "sensV", "fov", "ads"]
+            if ini.Has(k)
+                n++
+        if (n > 0) {
+            SetText(c["src"], "✓ Read " n " value(s) from your Siege settings file. Check them, then add your DPI.")
+            Ui.Paint(c["src"], Clr.Green)
+        } else {
+            SetText(c["src"], "Siege settings file not found - the resolution is your monitor's; fill in the rest.")
+            Ui.Paint(c["src"], Clr.Amber)
+        }
+        if !quiet
+            Toast.Show(n ? "ok" : "warn", n ? "✓ READ FROM SIEGE" : "⚠ SIEGE SETTINGS NOT FOUND", n ? n " value(s) filled in" : "Enter them by hand", "", "")
+    }
+
     static Render() {
         c := Wizard.Ctl
-        st := Wizard.Steps[Wizard.Step]
-        n := Wizard.Steps.Length
-        filled := Round(Wizard.Step / n * 24)
-        SetText(c["prog"], "SETUP   " Wizard.Bar(filled, 24))
-        SetText(c["cnt"], Wizard.Step " / " n)
-        SetText(c["title"], st["t"])
-        SetText(c["body"], st["b"])
-        k := st["k"]
-        c["in"].Visible := (k = "num" || k = "res")
-        c["dd"].Visible := (k = "pref" || k = "hud")
-        c["b1"].Visible := (k = "cal" || k = "save" || k = "res")
-        c["skip"].Visible := (k = "cal" || k = "test")
-        c["back"].Visible := Wizard.Step > 1
-        SetText(c["next"], Wizard.Step = n ? "FINISH ✓" : "NEXT ▸")
-        Calib.SetTesting(k = "test")
-        if (k = "num")
-            c["in"].Text := Cfg.Get(st["p"])
-        else if (k = "res") {
-            c["in"].Text := Cfg.Get("game.resW") "x" Cfg.Get("game.resH")
-            SetText(c["b1"], "AUTO (THIS MONITOR)")
-        } else if (k = "pref") {
-            items := st["p"] = "scope" ? Db.AllScopes() : st["p"] = "barrel" ? LoadoutMgr.BarrelChain : LoadoutMgr.GripChain
-            c["dd"].Delete(), c["dd"].Add(items)
-            c["dd"].Choose(IndexOf(items, Cfg.Get("prefs." st["p"])) || 1)
-        } else if (k = "hud") {
-            items := ["Top Left", "Top Right", "Bottom Left", "Bottom Right"]
-            c["dd"].Delete(), c["dd"].Add(items)
-            c["dd"].Choose(IndexOf(items, Cfg.Get("ui.hudPos")) || 2)
-        } else if (k = "cal") {
-            Calib.Side := st["side"]
-            SetText(c["b1"], "START CALIBRATION")
-        } else if (k = "save")
-            SetText(c["b1"], "COPY FULL LUA SCRIPT + MY CONFIG")
+        p := Wizard.Page
+        for pg, list in Wizard.Pages
+            for ctl in list
+                ctl.Visible := (pg = p)
+        SetText(c["prog"], "SETUP   " Wizard.Bar(p * 8, 24))
+        SetText(c["cnt"], p " / 3")
+        SetText(c["t1"], "Your game settings")
+        c["back"].Visible := p > 1
+        SetText(c["next"], p = 3 ? "FINISH ✓" : "NEXT ▸")
+        if (p = 2) {
+            pref := Cfg.Data["prefs"]
+            for f, items in Map("scope", Db.AllScopes(), "barrel", LoadoutMgr.BarrelChain, "grip", LoadoutMgr.GripChain)
+                c["d_" f].Choose(IndexOf(items, pref[f]) || 1)
+            c["d_hud"].Choose(IndexOf(["Top Left", "Top Right", "Bottom Left", "Bottom Right"], Cfg.Get("ui.hudPos")) || 2)
+            Wizard.Tg["start"].Set(Startup.IsOn() || !Cfg.Get("setup.done", 0))
+        }
+        if (p = 3 && !Wizard.Installed)
+            Wizard.Install()
         Wizard.Refresh()
     }
 
@@ -4501,82 +4653,86 @@ class Wizard {
         return s
     }
 
-    ; Live parts of a step (calibration status, detection readout).
+    ; Builds the full script (your Lua + your config) on the clipboard.
+    static Install() {
+        Cfg.SaveNow()
+        r := LuaBlock.Copy()
+        Wizard.Installed := true
+        Wizard.Res := r
+        LuaBlock.Announce(r)
+        Wizard.Refresh()
+    }
+    static Res := ""
+
+    ; Live status of page 3: turns green by itself when G HUB reports this config.
     static Refresh() {
-        if !Wizard.Visible
+        if (!Wizard.Visible || Wizard.Page != 3 || !Wizard.Installed)
             return
         c := Wizard.Ctl
-        st := Wizard.Steps[Wizard.Step]
-        k := st["k"]
-        if (k = "cal") {
-            side := st["side"]
-            pts := ""
-            for i, p in Calib.Pts
-                pts .= (i = 1 ? "TOP LEFT      " : "BOTTOM RIGHT  ") Format("{:.4f}, {:.4f}", p[1], p[2]) "`n"
-            SetText(c["ex"], "STATUS  " Calib.Long(side) "`n" pts (Calib.Err != "" ? "⚠ " Calib.Err : "Capture key: " Cfg.Get("hotkeys.capture")))
-        } else if (k = "test") {
-            d := Calib.Live
-            if (!d.Count)
-                SetText(c["ex"], "Move the cursor over the operator selector...")
-            else
-                SetText(c["ex"], Format("ROW {}   COLUMN {}`nDETECTED  {}`n{}", d["row"] ? d["row"] : "-", d["col"] ? d["col"] : "-"
-                    , d["name"] != "" ? StrUpper(d["name"]) : "-", d["name"] != "" ? "✓ GRID MATCH" : "no tile here"))
-        } else if (k = "save") {
-            lc := Sync.LuaConfig()
-            SetText(c["ex"], "Lua: " lc[2])
-        } else
-            SetText(c["ex"], "")
+        r := Wizard.Res
+        full := IsObject(r) && r["full"]
+        SetText(c["i1"], full ? "✓  1  Your whole script + settings is on the clipboard" : "⚠  1  Only the config block is on the clipboard")
+        Ui.Paint(c["i1"], full ? Clr.Green : Clr.Amber)
+        SetText(c["i2"], "▸  2  In G HUB: open the script, press Ctrl + A, paste, Save")
+        Ui.Paint(c["i2"], Clr.Text)
+        lc := Sync.LuaConfig()
+        done := (lc[1] = "OK")
+        SetText(c["i3"], done ? "✓  3  G HUB has loaded your config. You're done." : Live.Status = "LOST" || Live.Data.Count = 0 ? "…  3  Waiting for G HUB (press RALT + left click once after saving)" : "…  3  Waiting for G HUB to load it")
+        Ui.Paint(c["i3"], done ? Clr.Green : Clr.Dim)
+        SetText(c["i4"], (IsObject(r) && !r["full"] ? r["err"] "`n" : "") "Script used: " Cfg.Get("lua.path", "(not found)"))
     }
 
-    static Action() {
-        k := Wizard.Steps[Wizard.Step]["k"]
-        if (k = "cal")
-            Calib.Start(Wizard.Steps[Wizard.Step]["side"])
-        else if (k = "res") {
-            Wizard.Ctl["in"].Text := A_ScreenWidth "x" A_ScreenHeight
-        } else if (k = "save") {
-            Cfg.SaveNow()
-            LuaBlock.Announce(LuaBlock.Copy())
-            Wizard.Refresh()
-        }
-    }
-
-    ; dir +1/-1. Going forward validates and stores the current step first (unless skipping).
-    static Go(dir, skipping := false) {
-        st := Wizard.Steps[Wizard.Step]
+    static Go(dir) {
+        p := Wizard.Page
         c := Wizard.Ctl
-        if (dir > 0 && !skipping) {
-            k := st["k"]
-            if (k = "num") {
-                v := Trim(c["in"].Text)
-                if !(IsNumber(v) && v + 0 >= st["lo"] && v + 0 <= st["hi"]) {
-                    Toast.Show("warn", "⚠ INVALID VALUE", "Enter a number between " st["lo"] " and " st["hi"], "", "")
-                    return
-                }
-                Cfg.Set(st["p"], v + 0)
-            } else if (k = "res") {
-                if !RegExMatch(Trim(c["in"].Text), "i)^(\d{3,5})\s*[x×]\s*(\d{3,5})$", &m) {
-                    Toast.Show("warn", "⚠ INVALID RESOLUTION", "Use the form 3440x1440", "", "")
-                    return
-                }
-                Cfg.Set("game.resW", Integer(m[1])), Cfg.Set("game.resH", Integer(m[2]))
-            } else if (k = "pref")
-                Cfg.Set("prefs." st["p"], c["dd"].Text)
-            else if (k = "hud") {
-                Cfg.Set("ui.hudPos", c["dd"].Text)
-                View.RebuildSoon()
-            } else if (k = "cal" && Calib.Active)
-                Calib.Cancel()
-        }
-        if (dir > 0 && Wizard.Step = Wizard.Steps.Length) {
+        if (dir > 0 && p = 1 && !Wizard.SaveSettings())
+            return
+        if (dir > 0 && p = 2)
+            Wizard.SavePrefs()
+        if (dir > 0 && p = 3) {
             Cfg.Set("setup.done", 1)
             Cfg.SaveNow()
             Wizard.Close()
             View.Changed()
             return
         }
-        Wizard.Step := Clamp(Wizard.Step + dir, 1, Wizard.Steps.Length)
+        Wizard.Page := Clamp(p + dir, 1, 3)
         Wizard.Render()
+    }
+
+    static SaveSettings() {
+        c := Wizard.Ctl
+        if !RegExMatch(Trim(c["e_res"].Text), "i)^(\d{3,5})\s*[x×]\s*(\d{3,5})$", &m) {
+            Toast.Show("warn", "⚠ RESOLUTION", "Use the form 3440x1440", "", "")
+            return false
+        }
+        rules := [["e_dpi", "dpi", 50, 32000, "DPI"], ["e_sh", "sensH", 0.1, 100, "Horizontal sens"], ["e_sv", "sensV", 0.1, 100, "Vertical sens"]
+            , ["e_fov", "fov", 40, 140, "FOV"], ["e_ads", "ads", 1, 200, "ADS"]]
+        for r in rules {
+            v := Trim(c[r[1]].Text)
+            if !(IsNumber(v) && v + 0 >= r[3] && v + 0 <= r[4]) {
+                Toast.Show("warn", "⚠ " StrUpper(r[5]), "Enter a number between " r[3] " and " r[4], "", "")
+                return false
+            }
+        }
+        for r in rules
+            Cfg.Data["game"][r[2]] := Trim(c[r[1]].Text) + 0
+        Cfg.Data["game"]["resW"] := Integer(m[1]), Cfg.Data["game"]["resH"] := Integer(m[2])
+        Cfg.Dirty()
+        return true
+    }
+
+    static SavePrefs() {
+        c := Wizard.Ctl
+        for f in ["scope", "barrel", "grip"]
+            if (c["d_" f].Text != "")
+                Cfg.Data["prefs"][f] := c["d_" f].Text
+        if (c["d_hud"].Text != "") {
+            Cfg.Set("ui.hudPos", c["d_hud"].Text)
+            View.RebuildSoon()
+        }
+        Startup.Set(Wizard.Tg["start"].On)
+        Cfg.Dirty()
     }
 }
 
