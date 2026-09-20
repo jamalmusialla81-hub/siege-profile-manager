@@ -1088,7 +1088,6 @@ local RECOIL_PROFILES = {
     ["COMMANDO 9"]   = { operator = "Mozzie", r = 6,  x1 = -1, tm1 = 150,  x2 = 1, tm2 = 250,  y1 = -1, tym1 = 40,   y2 = 1, tym2 = 550 },
     -- tuned with the tune mode. Keys are WEAPON:BARREL:GRIP, so each loadout has its own profile.
     ["M4:SUPPRESSOR:HORIZONTAL"] = { r = 8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1, tym1 = 500, y2 = 1, tym2 = 900, strength = 3.90, side = -0.5, late = 1.00 },
-    ["M4:SUPPRESSOR:ANGLED"] = { r = 8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1, tym1 = 500, y2 = 1, tym2 = 900, strength = 3.10, side = -1.8, late = 1.00 },
 }
 
 -- Profiles are looked up per exact loadout first ("WEAPON:BARREL:GRIP"), then
