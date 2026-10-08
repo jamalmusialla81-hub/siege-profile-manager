@@ -3093,7 +3093,8 @@ class Center {
         c["c_step2"] := add(Ui.Txt(g, 744, 142, 216, 40, "", 9, "Norm", Clr.Dim))
         c["c_step2"].Opt("-0x200 -0x4000")
         c["c_pts"] := add(Ui.Mono(g, 744, 186, 216, 52, "", 8, Clr.Dim, Clr.Bg))
-        add(Ui.Btn(g, 744, 248, 216, 32, "START CALIBRATION", () => Calib.Start(Calib.Side), "p"))
+        add(Ui.Btn(g, 744, 248, 104, 32, "AUTO-DETECT", () => AutoCal.Run(Calib.Side), "p"))
+        add(Ui.Btn(g, 856, 248, 104, 32, "MANUAL", () => Calib.Start(Calib.Side)))
         add(Ui.Btn(g, 744, 286, 216, 30, "CANCEL", () => Calib.Cancel()))
         add(Ui.Btn(g, 744, 322, 104, 30, "RESET THIS", () => Calib.ResetSide(Calib.Side), "d"))
         add(Ui.Btn(g, 856, 322, 104, 30, "RESET BOTH", () => Calib.ResetBoth(), "d"))
@@ -3123,7 +3124,7 @@ class Center {
         SetText(c["c_step2"], Calib.Active
             ? (Calib.Step = 1 ? "Hover the OUTER top-left corner of the first operator tile, then press " Cfg.Get("hotkeys.capture") "."
                 : "Hover the OUTER bottom-right corner of the last tile (row 7, column 7), then press " Cfg.Get("hotkeys.capture") ".")
-            : (Calib.Err != "" ? "⚠ " Calib.Err : "Open the operator selector in Siege, press START, then capture the two corners."))
+            : (Calib.Err != "" ? "⚠ " Calib.Err : "Open the operator selector in Siege and press AUTO-DETECT (it also runs by itself). MANUAL = capture the two corners."))
         pts := ""
         for i, p in Calib.Pts
             pts .= (i = 1 ? "TOP LEFT      " : "BOTTOM RIGHT  ") Format("{:.4f}, {:.4f}", p[1], p[2]) "`n"
@@ -4000,6 +4001,228 @@ class Calib {
             Center.RefreshCalibLive()
         if Wizard.Visible
             Wizard.Refresh()
+    }
+}
+
+; ------------------------------------------------------------------------------
+; 16b. AUTO CALIBRATION  (finds the 7x7 operator grid on screen, no clicks)
+;     Screenshots the primary monitor, counts hard edges per column / row, then looks for seven
+;     evenly spaced tile edges (left + right) on each axis. Only a clean, plausible result is
+;     saved; anything uncertain is rejected and the manual 2-click calibration stays available.
+;     It runs by itself while Siege is the active window and a side has no calibration yet.
+; ------------------------------------------------------------------------------
+class AutoCal {
+    static Busy := false
+    static Last := ""
+
+    ; Screenshot -> 32-bit top-down pixel buffer (B,G,R,A per pixel)
+    static Grab(w, h) {
+        hdc := DllCall("GetDC", "Ptr", 0, "Ptr")
+        mdc := DllCall("CreateCompatibleDC", "Ptr", hdc, "Ptr")
+        bmp := DllCall("CreateCompatibleBitmap", "Ptr", hdc, "Int", w, "Int", h, "Ptr")
+        old := DllCall("SelectObject", "Ptr", mdc, "Ptr", bmp, "Ptr")
+        DllCall("BitBlt", "Ptr", mdc, "Int", 0, "Int", 0, "Int", w, "Int", h, "Ptr", hdc, "Int", 0, "Int", 0, "UInt", 0x40CC0020)   ; SRCCOPY | CAPTUREBLT
+        bi := Buffer(40, 0)
+        NumPut("UInt", 40, bi, 0), NumPut("Int", w, bi, 4), NumPut("Int", -h, bi, 8), NumPut("UShort", 1, bi, 12), NumPut("UShort", 32, bi, 14)
+        buf := Buffer(w * h * 4, 0)
+        DllCall("GetDIBits", "Ptr", mdc, "Ptr", bmp, "UInt", 0, "UInt", h, "Ptr", buf, "Ptr", bi, "UInt", 0)
+        DllCall("SelectObject", "Ptr", mdc, "Ptr", old)
+        DllCall("DeleteObject", "Ptr", bmp)
+        DllCall("DeleteDC", "Ptr", mdc)
+        DllCall("ReleaseDC", "Ptr", 0, "Ptr", hdc)
+        return buf
+    }
+
+    ; How many sampled lines have a hard edge at each column (px) and each row (py). Index = pixel + 1.
+    static Profiles(buf, w, h, &px, &py) {
+        px := [], py := []
+        loop w
+            px.Push(0)
+        loop h
+            py.Push(0)
+        thr := 28, stp := 4
+        y := 0
+        while (y < h) {
+            row := y * w * 4 + 1                        ; +1 = the green byte, a good enough brightness
+            prev := NumGet(buf, row, "UChar")
+            x := 1
+            while (x < w) {
+                cur := NumGet(buf, row + x * 4, "UChar")
+                if (Abs(cur - prev) > thr)
+                    px[x + 1] += 1
+                prev := cur
+                x += 1
+            }
+            y += stp
+        }
+        x := 0
+        while (x < w) {
+            prev := NumGet(buf, x * 4 + 1, "UChar")
+            y := 1
+            while (y < h) {
+                cur := NumGet(buf, (y * w + x) * 4 + 1, "UChar")
+                if (Abs(cur - prev) > thr)
+                    py[y + 1] += 1
+                prev := cur
+                y += 1
+            }
+            x += stp
+        }
+    }
+
+    ; Finds the seven-tile comb on one axis. Returns Map(start, stop, score) in pixels or "" when nothing clean is found.
+    static Comb(P) {
+        n := P.Length
+        mx := 0
+        for v in P
+            mx := Max(mx, v)
+        if (mx < 12)
+            return ""
+        hist := []
+        loop mx + 1
+            hist.Push(0)
+        for v in P
+            hist[v + 1] += 1
+        cut := n * 0.02, acc := 0, p98 := mx
+        loop mx + 1 {
+            i := mx + 2 - A_Index
+            acc += hist[i]
+            if (acc >= cut) {
+                p98 := i - 1
+                break
+            }
+        }
+        T := Max(8, p98 * 0.5)
+        ; M = P widened by +-3 px, so a fractional pitch still lands on the edge
+        M := []
+        loop n {
+            lo := Max(1, A_Index - 3), hi := Min(n, A_Index + 3), m := 0
+            i := lo
+            while (i <= hi) {
+                m := Max(m, P[i])
+                i += 1
+            }
+            M.Push(m)
+        }
+        cands := []
+        loop n
+            if (P[A_Index] >= T)
+                cands.Push(A_Index)
+        if (cands.Length < 7)
+            return ""
+        best := 0, bs := 0, bp := 0, bc := 0
+        p := Max(8, Round(n * 0.03))
+        pmax := Round(n * 0.2)
+        while (p <= pmax) {
+            for s in cands {
+                if (s + 6 * p + p > n)
+                    break
+                sum := 0, ok := true
+                loop 7 {
+                    v := M[Round(s + (A_Index - 1) * p)]
+                    if (v < T) {
+                        ok := false
+                        break
+                    }
+                    sum += v
+                }
+                if !ok
+                    continue
+                cb := 0, csum := 0
+                c := Round(p * 0.8)
+                while (c <= Round(p * 0.995)) {
+                    rs := 0, ok2 := true
+                    loop 7 {
+                        pos := Round(s + c + (A_Index - 1) * p)
+                        v := pos <= n ? M[pos] : 0
+                        if (v < T) {
+                            ok2 := false
+                            break
+                        }
+                        rs += v
+                    }
+                    if (ok2 && rs > csum)
+                        csum := rs, cb := c
+                    c += 1
+                }
+                if (cb && sum + csum > best)
+                    best := sum + csum, bs := s, bp := p, bc := cb
+            }
+            p += 0.5
+        }
+        if !bs
+            return ""
+        ; snap both outer edges to the strongest nearby line
+        a := bs, b := Round(bs + 6 * bp + bc)
+        va := 0, vb := 0
+        loop 7 {
+            ia := bs - 4 + A_Index, ib := b - 4 + A_Index
+            if (ia >= 1 && ia <= n && P[ia] > va)
+                va := P[ia], a := ia
+            if (ib >= 1 && ib <= n && P[ib] > vb)
+                vb := P[ib], b := ib
+        }
+        return Map("start", a - 1, "stop", b - 1, "score", best, "pitch", bp)
+    }
+
+    ; Detects the grid and saves it for `side`. quiet = no toasts on failure (background attempts).
+    static Run(side, quiet := false) {
+        if (AutoCal.Busy || Calib.Active)
+            return false
+        AutoCal.Busy := true
+        ok := false
+        try {
+            w := A_ScreenWidth, h := A_ScreenHeight
+            buf := AutoCal.Grab(w, h)
+            AutoCal.Profiles(buf, w, h, &px, &py)
+            cx := AutoCal.Comb(px)
+            cy := AutoCal.Comb(py)
+            why := ""
+            if (!IsObject(cx) || !IsObject(cy))
+                why := "no 7x7 tile grid found on screen"
+            else if ((cx["stop"] - cx["start"]) < w * 0.2 || (cy["stop"] - cy["start"]) < h * 0.2)
+                why := "the grid it found is too small to be the operator selector"
+            else if (cx["start"] < 0 || cy["start"] < 0 || cx["stop"] > w || cy["stop"] > h)
+                why := "the grid it found runs off the screen"
+            if (why = "") {
+                a := Calib.Norm(cx["start"], cy["start"]), b := Calib.Norm(cx["stop"], cy["stop"])
+                if (b[1] <= a[1] || b[2] <= a[2])
+                    why := "the corners came out in the wrong order"
+            }
+            if (why != "") {
+                AutoCal.Last := why
+                Diag.Log("auto calibration: " why)
+                if !quiet
+                    Toast.Show("warn", "AUTO CALIBRATION", "Could not find the grid", "Open the operator selector and try again, or use MANUAL", "")
+            } else {
+                Calib.Store(side, a[1], a[2], b[1], b[2], "auto")
+                Cfg.Dirty()
+                AutoCal.Last := Format("found {:.4f},{:.4f} to {:.4f},{:.4f}", a[1], a[2], b[1], b[2])
+                Diag.Log("auto calibration " side ": " AutoCal.Last)
+                Toast.Show("ok", "✓ AUTO CALIBRATED", Db.SideLabel(side) " GRID", "Copy the Lua script to use it in game", "")
+                ok := true
+            }
+        } catch as e {
+            AutoCal.Last := "error: " e.Message
+            Diag.Log("auto calibration " AutoCal.Last)
+            if !quiet
+                Toast.Show("warn", "AUTO CALIBRATION", "Failed: " e.Message, "", "")
+        } finally
+            AutoCal.Busy := false
+        View.Changed()
+        return ok
+    }
+
+    ; Background attempt: only while Siege is the active window and the current side has no grid of its own.
+    static Tick() {
+        if (!Cfg.Get("game.autoCal", 1) || AutoCal.Busy || Calib.Active || Calib.Testing)
+            return
+        side := Calib.Side
+        if (Calib.HasCal(side) || Calib.Shared(side))
+            return
+        if !SlotSync.SiegeActive()
+            return
+        AutoCal.Run(side, true)
     }
 }
 
@@ -5200,6 +5423,7 @@ SetTimer(() => Live.Poll(), 15)                  ; receives packets (DBWIN hands
 SetTimer(() => Live.Tick(), 1000)                ; link health
 SetTimer(() => Hud.KeepOnTop(), 2000)            ; borderless games can steal the Z-order
 SetTimer(() => Anim.Tick(), 700)                 ; "live" pulse
+SetTimer(() => AutoCal.Tick(), 8000)               ; finds the operator grid by itself while Siege is in front
 SetTimer(() => (Center.Visible && (Center.Cur = "HOME" || Center.Cur = "DIAGNOSTICS") ? Center.RefreshPage() : 0), 1000)
 OnExit((*) => Cfg.SaveNow())
 if Cfg.Get("coach.on", 0)
