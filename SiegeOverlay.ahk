@@ -4266,7 +4266,7 @@ class Hk {
         ["LOADOUT", "nextPrimary", "Next primary weapon", "lalt", 5], ["LOADOUT", "nextSecondary", "Next secondary weapon", "lalt", 4],
         ["LOADOUT", "nextLoadout", "Next saved loadout", "ralt", 2], ["LOADOUT", "prevLoadout", "Previous saved loadout", "ralt", 3],
         ["ATTACHMENTS", "nextScope", "Next scope", "lshift", 5], ["ATTACHMENTS", "nextBarrel", "Next barrel", "lshift", 4],
-        ["ATTACHMENTS", "nextGrip", "Next grip", "lalt", 1],
+        ["ATTACHMENTS", "nextGrip", "Next grip", "lalt", 3],
         ["CALIBRATION", "toggleCalibration", "Calibrate: start / set corner", "rshift", 4], ["CALIBRATION", "resetCalibration", "Cancel / reset calibration", "rshift", 5],
         ["SYSTEM", "toggleSystem", "System on/off", "ralt", 5], ["SYSTEM", "toggleDebug", "Debug on/off", "ralt", 4],
         ["SYSTEM", "redraw", "Redraw / resend state", "ralt", 1]
@@ -4600,6 +4600,7 @@ class Coach {
     }
 
     static Skip(msg) {
+        Coach.Seen++                    ; a skipped burst is still a burst seen (scored = seen - skipped)
         Coach.Skipped++
         Coach.Msg := "skipped: " msg
         View.Changed()
@@ -4617,7 +4618,6 @@ class Coach {
     static Analyze() {
         raw := Coach.Raw, fin := Coach.End
         Coach.Raw := "", Coach.End := ""
-        Coach.Seen++
         if (fin["py"] <= 0 || fin["ticks"] < 40) {
             Coach.Skip("the macro did not pull (aim down sights, hold fire 0.5 s or more)")
             return
@@ -4743,6 +4743,7 @@ class Coach {
         acc := 100 * (1 - Min(1, err / Max(meanPull, 0.5) * 2))
         Coach.Result := Map("key", raw["key"], "acc", acc, "mA", mA, "mB", mB, "mC", mC, "mX", mX, "pa", pa, "pb", pb, "pc", pc
             , "nA", nA, "nB", nB, "nC", nC, "dur", raw["dur"], "py", fin["py"], "t", A_Now)
+        Coach.Seen++
         Coach.Record(raw["key"], pa, pb, pc, pxs, t1, t2, mA, mB, mC, mX, acc)
         Coach.Msg := "burst scored: " Round(acc) "% accurate"
         View.Changed()

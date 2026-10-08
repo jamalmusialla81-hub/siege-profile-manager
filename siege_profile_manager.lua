@@ -12,7 +12,7 @@
       RSHIFT + Left click on operator tile ... auto-detect operator
       RCTRL  + MB5 / MB4 / LMB ................ next / prev operator / toggle favorite
       LCTRL  + MB5 / MB4 / LMB ................ next / prev favorite / attacker-defender page
-      LALT   + MB5 / MB4 / LMB ................ next primary / next secondary / next grip
+      LALT   + MB5 / MB4 / MMB ................ next primary / next secondary / next grip
       LSHIFT + MB5 / MB4 ...................... next scope / next barrel
       RALT   + MB5 / MB4 / LMB ................ system on-off / debug on-off / redraw
       RSHIFT + MB4 / MB5 ...................... start-cancel calibration / reset calibration
@@ -91,7 +91,7 @@ local CONFIG = {
             toggleSide        = { mod = "lctrl",  button = 1 },
             nextPrimary       = { mod = "lalt",   button = 5 },
             nextSecondary     = { mod = "lalt",   button = 4 },
-            nextGrip          = { mod = "lalt",   button = 1 },
+            nextGrip          = { mod = "lalt",   button = 3 },   -- middle button: LMB would eat the fire click while Alt is held
             nextScope         = { mod = "lshift", button = 5 },
             nextBarrel        = { mod = "lshift", button = 4 },
             toggleSystem      = { mod = "ralt",   button = 5 },
