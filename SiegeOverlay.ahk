@@ -944,6 +944,7 @@ class Cfg {
             Cfg.SaveError := e.Message
             Diag.Log("config save failed: " e.Message)
         }
+        try LuaBlock.AutoSave()                ; keep the Lua file on disk in step with the config
     }
 
     ; --- export / import / backups -------------------------------------------
@@ -1139,6 +1140,27 @@ class LuaBlock {
         eol := InStr(text, "`r`n") ? "`r`n" : "`n"
         block := StrReplace(RTrim(LuaBlock.Build(rev), "`n"), "`n", eol)
         return SubStr(text, 1, b - 1) block SubStr(text, e2 + StrLen(endMark))
+    }
+
+    ; Every config save also rewrites the SPM_USER block inside the Lua file on disk (only when the block really
+    ; changed), so a script you paste later always carries your latest calibration, loadouts and learned profiles.
+    ; Everything outside the markers is left byte for byte. G HUB still needs the new script pasted once.
+    static LastBody := ""
+    static AutoSave() {
+        p := Cfg.Get("lua.path", "")
+        if (p = "" || !FileExist(p))
+            return
+        body := LuaBlock.Build("0")
+        if (body = LuaBlock.LastBody)
+            return
+        text := LuaBlock.FullScript(A_Now, &err)
+        if (text = "")
+            return
+        f := FileOpen(p, "w", "UTF-8-RAW")
+        f.Write(text)
+        f.Close()
+        LuaBlock.LastBody := body
+        Diag.Log("Lua file on disk updated with the current config")
     }
 
     ; Puts the complete script (with the user's config merged in) on the clipboard and marks the
@@ -1588,6 +1610,7 @@ class Sync {
                 Calib.OnLuaDetect(e)
             case "burst_start":
                 Coach.OnLuaStart()
+                ScreenCoach.OnStart()
                 if IsObject(Recorder.Cur) {
                     Recorder.Cur["macro"] := 1               ; the macro is moving the mouse during this burst
                     Recorder.Cur["recoil"] := e.Get("recoil", "0") = "1" ? 1 : 0
@@ -1601,6 +1624,7 @@ class Sync {
                 b["active"] := 0, b["lastT"] := A_TickCount
                 b["last"] := Round(e.Get("ms", 0) / 1000, 1) " s, " e.Get("ticks", 0) " ticks, " e.Get("clicks", 0) " clicks"
                 Coach.OnLuaEnd(e)
+                ScreenCoach.OnEnd(e)
         }
     }
 
@@ -4833,6 +4857,274 @@ class Coach {
 }
 
 ; ------------------------------------------------------------------------------
+; 18b. SCREEN COACH  (measures where the view really ends up, no corrections from you needed)
+;     Takes a picture of the top-left of the screen when a burst starts and another when it ends, and
+;     measures how far the picture moved (row / column brightness profiles, cross-correlated). The camera
+;     moved by recoil minus the macro's pull, so that movement IS the error. It feeds the same Coach
+;     records / proposals as before. F11 (hold ADS first) measures how many screen pixels one mouse count
+;     moves the view, so the error can be turned into a pull change; until then 0.4 px/count is assumed.
+;     Runs while the coach (F6) is ON and Siege is in front. It is conservative: an unclear picture
+;     (flat wall, repeating pattern) is skipped, never guessed.
+; ------------------------------------------------------------------------------
+class ScreenCoach {
+    static A := ""
+    static Busy := false
+    static RX := 0
+    static RY := 0
+
+    static Active() => Recorder.On && Live.Fresh() && (SlotSync.Anywhere || SlotSync.SiegeActive())
+
+    ; Area compared: left 60% x top 50% of the screen (the gun, ammo counter and compass are outside it).
+    static Region() {
+        w := A_ScreenWidth, h := A_ScreenHeight
+        ScreenCoach.RX := Round(w * 0.05), ScreenCoach.RY := Round(h * 0.05)
+        return [ScreenCoach.RX, ScreenCoach.RY, Round(w * 0.60), Round(h * 0.50)]
+    }
+
+    static Grab(x, y, w, h) {
+        hdc := DllCall("GetDC", "Ptr", 0, "Ptr")
+        mdc := DllCall("CreateCompatibleDC", "Ptr", hdc, "Ptr")
+        bmp := DllCall("CreateCompatibleBitmap", "Ptr", hdc, "Int", w, "Int", h, "Ptr")
+        old := DllCall("SelectObject", "Ptr", mdc, "Ptr", bmp, "Ptr")
+        DllCall("BitBlt", "Ptr", mdc, "Int", 0, "Int", 0, "Int", w, "Int", h, "Ptr", hdc, "Int", x, "Int", y, "UInt", 0x40CC0020)
+        bi := Buffer(40, 0)
+        NumPut("UInt", 40, bi, 0), NumPut("Int", w, bi, 4), NumPut("Int", -h, bi, 8), NumPut("UShort", 1, bi, 12), NumPut("UShort", 32, bi, 14)
+        buf := Buffer(w * h * 4, 0)
+        DllCall("GetDIBits", "Ptr", mdc, "Ptr", bmp, "UInt", 0, "UInt", h, "Ptr", buf, "Ptr", bi, "UInt", 0)
+        DllCall("SelectObject", "Ptr", mdc, "Ptr", old)
+        DllCall("DeleteObject", "Ptr", bmp)
+        DllCall("DeleteDC", "Ptr", mdc)
+        DllCall("ReleaseDC", "Ptr", 0, "Ptr", hdc)
+        return buf
+    }
+
+    ; Mean brightness per column and per row (every 4th pixel: keeps the analysis short, because the Lua waits for this
+    ; script while it runs), without a box around the crosshair.
+    static Profiles(buf, w, h) {
+        stp := 4
+        nx := w // stp, ny := h // stp
+        sx := [], sy := [], cx := [], cy := []
+        loop nx
+            sx.Push(0), cx.Push(0)
+        loop ny
+            sy.Push(0), cy.Push(0)
+        mx := A_ScreenWidth // 2 - ScreenCoach.RX
+        my := A_ScreenHeight // 2 - ScreenCoach.RY
+        iy := 1
+        while (iy <= ny) {
+            y := (iy - 1) * stp
+            row := y * w * 4 + 1                          ; +1 = the green byte
+            ix := 1
+            while (ix <= nx) {
+                x := (ix - 1) * stp
+                if (Abs(x - mx) > 70 || Abs(y - my) > 70) {
+                    L := NumGet(buf, row + x * 4, "UChar")
+                    sx[ix] += L, cx[ix] += 1
+                    sy[iy] += L, cy[iy] += 1
+                }
+                ix += 1
+            }
+            iy += 1
+        }
+        loop nx
+            sx[A_Index] := cx[A_Index] ? sx[A_Index] / cx[A_Index] : 0
+        loop ny
+            sy[A_Index] := cy[A_Index] ? sy[A_Index] / cy[A_Index] : 0
+        return Map("x", sx, "y", sy)
+    }
+
+    ; First difference (kills lighting gradients), normalised to zero mean / unit spread. "" = too flat.
+    static Prep(arr) {
+        n := arr.Length - 1
+        if (n < 50)
+            return ""
+        dif := []
+        i := 1
+        while (i <= n) {
+            dif.Push(arr[i + 1] - arr[i])
+            i += 1
+        }
+        m := 0
+        for v in dif
+            m += v
+        m /= dif.Length
+        ss := 0
+        for v in dif
+            ss += (v - m) ** 2
+        sd := Sqrt(ss / dif.Length)
+        if (sd < 0.3)
+            return ""
+        out := []
+        for v in dif
+            out.Push((v - m) / sd)
+        return out
+    }
+
+    ; d (in samples) such that b[i + d] ~ a[i]; c = its correlation, sec = the best other peak.
+    static Shift(a, b, maxd) {
+        n := Min(a.Length, b.Length)
+        best := -2, bd := 0
+        cs := []
+        d := -maxd
+        while (d <= maxd) {
+            s := 0, cnt := 0
+            i := Max(1, 1 - d)
+            i1 := Min(n, n - d)
+            while (i <= i1) {
+                s += a[i] * b[i + d]
+                cnt += 1
+                i += 1
+            }
+            c := cnt > n / 2 ? s / cnt : -1
+            cs.Push(c)
+            if (c > best)
+                best := c, bd := d
+            d += 1
+        }
+        sec := -2
+        for k, c in cs {
+            dd := k - maxd - 1
+            if (Abs(dd - bd) > 3 && c > sec)
+                sec := c
+        }
+        return Map("d", bd, "c", best, "sec", sec)
+    }
+
+    ; Movement of picture B relative to picture A in pixels. Returns Map(dx, dy) or "" with the reason in why.
+    static Measure(bufA, bufB, w, h, &why) {
+        why := ""
+        pa := ScreenCoach.Profiles(bufA, w, h)
+        pb := ScreenCoach.Profiles(bufB, w, h)
+        ax := ScreenCoach.Prep(pa["x"]), bx := ScreenCoach.Prep(pb["x"])
+        ay := ScreenCoach.Prep(pa["y"]), by := ScreenCoach.Prep(pb["y"])
+        if (!IsObject(ax) || !IsObject(bx) || !IsObject(ay) || !IsObject(by)) {
+            why := "the picture is too flat (aim at a textured wall or the range target)"
+            return ""
+        }
+        sy := ScreenCoach.Shift(ay, by, Min(75, ay.Length // 2 - 10))
+        sx := ScreenCoach.Shift(ax, bx, Min(75, ax.Length // 2 - 10))
+        if (sy["c"] < 0.5 || sx["c"] < 0.5 || sy["c"] - sy["sec"] < 0.05 || sx["c"] - sx["sec"] < 0.05) {
+            why := "the picture match was unclear (repeating pattern, or the view changed too much)"
+            return ""
+        }
+        return Map("dx", sx["d"] * 4, "dy", sy["d"] * 4)
+    }
+
+    static OnStart() {
+        ScreenCoach.A := ""
+        if (ScreenCoach.Busy || !ScreenCoach.Active())
+            return
+        r := ScreenCoach.Region()
+        try ScreenCoach.A := Map("buf", ScreenCoach.Grab(r[1], r[2], r[3], r[4]), "t", A_TickCount)
+    }
+
+    static OnEnd(e) {
+        if (!IsObject(ScreenCoach.A) || ScreenCoach.Busy)
+            return
+        a := ScreenCoach.A
+        ScreenCoach.A := ""
+        if (A_TickCount - a["t"] > 20000)
+            return
+        py := Float(e.Get("py", 0)), ticks := Integer(e.Get("ticks", 0)), ms := Float(e.Get("ms", 0))
+        if (py <= 0 || ticks < 40) {
+            Coach.Skip("screen check: hold fire a bit longer (the macro must pull for 0.5 s+)")
+            return
+        }
+        ScreenCoach.Busy := true
+        try {
+            r := ScreenCoach.Region()
+            bufB := ScreenCoach.Grab(r[1], r[2], r[3], r[4])
+            ScreenCoach.Analyze(a["buf"], bufB, r[3], r[4], py, ticks, ms)
+        } catch as err {
+            Diag.Log("screen coach: " err.Message)
+            Coach.Skip("screen check failed: " err.Message)
+        } finally
+            ScreenCoach.Busy := false
+    }
+
+    static Analyze(bufA, bufB, w, h, py, ticks, ms) {
+        m := ScreenCoach.Measure(bufA, bufB, w, h, &why)
+        if !IsObject(m) {
+            Coach.Skip("screen check: " why)
+            return
+        }
+        key := Recorder.Key()
+        pa := Live.Get("pull_a", "-"), pb := Live.Get("pull_b", "-"), pc := Live.Get("pull_c", "-"), pxs := Live.Get("pull_x", "-")
+        if (key = "" || !IsNumber(pa) || !IsNumber(pb) || !IsNumber(pc)) {
+            Coach.Skip("screen check: the Lua did not report a profile for this weapon")
+            return
+        }
+        pa += 0, pb += 0, pc += 0, pxs := IsNumber(pxs) ? pxs + 0 : 0
+        t1 := IsNumber(Live.Get("pull_t1", "-")) ? Live.Get("pull_t1", "-") + 0 : 500
+        t2 := IsNumber(Live.Get("pull_t2", "-")) ? Live.Get("pull_t2", "-") + 0 : 900
+        g := Cfg.Data["game"]
+        gain := IsNumber(Live.Get("recoil_gain", "1")) ? Live.Get("recoil_gain", "1") + 0 : 1
+        sy := gain * (Coach.RefDpi * Coach.RefV) / (g["dpi"] * g["sensV"])
+        sxs := gain * (Coach.RefDpi * Coach.RefH) / (g["dpi"] * g["sensH"])
+        cyv := Cfg.Num("coach.pxy", 0.4), cxv := Cfg.Num("coach.pxx", 0.4)
+        resUp := m["dy"]                         ; picture moved DOWN = the view ended ABOVE where it started = macro too weak
+        resRight := -m["dx"]                     ; picture moved LEFT = the view ended to the RIGHT
+        meanPull := (pa + pb + pc) / 3
+        perTickY := Clamp((resUp / cyv) / ticks / sy, -0.5 * meanPull, 0.5 * meanPull)
+        perTickX := Clamp(-(resRight / cxv) / ticks / sxs, -3, 3)
+        acc := 100 * (1 - Min(1, Abs(perTickY) / Max(meanPull, 0.5) * 2))
+        Coach.Seen++
+        Coach.Result := Map("key", key, "acc", acc, "mA", perTickY, "mB", perTickY, "mC", perTickY, "mX", perTickX
+            , "pa", pa, "pb", pb, "pc", pc, "nA", 1, "nB", 1, "nC", 1, "dur", ms, "py", py, "t", A_Now)
+        Coach.Record(key, pa, pb, pc, pxs, t1, t2, perTickY, perTickY, perTickY, perTickX, acc)
+        Coach.Msg := "screen check: view ended " Abs(resUp) " px " (resUp >= 0 ? "ABOVE" : "BELOW") " and " Abs(resRight) " px to the "
+            . (resRight >= 0 ? "RIGHT" : "LEFT") " of where it started"
+            . (Cfg.Get("coach.pxy", "") = "" ? "  (press F11 holding ADS to calibrate px per count)" : "")
+        View.Changed()
+    }
+
+    ; F11 while holding the aim button: moves the mouse 300 counts down, then 300 right, and measures how many screen
+    ; pixels the view moved each time. Do it with the sight you normally use (zoom changes the number).
+    static CalibratePx() {
+        if !(SlotSync.Anywhere || SlotSync.SiegeActive()) {
+            Toast.Show("warn", "CALIBRATE PX", "Siege must be the active window", "", "")
+            return
+        }
+        if !GetKeyState("RButton", "P") {
+            Toast.Show("warn", "CALIBRATE PX", "Hold RIGHT mouse (aim down sights)", "then press F11 again", "")
+            return
+        }
+        if ScreenCoach.Busy
+            return
+        ScreenCoach.Busy := true
+        try {
+            r := ScreenCoach.Region()
+            res := Map()
+            for axis in ["y", "x"] {
+                bufA := ScreenCoach.Grab(r[1], r[2], r[3], r[4])
+                MouseMove(axis = "x" ? 300 : 0, axis = "y" ? 300 : 0, 0, "R")
+                Sleep(200)
+                bufB := ScreenCoach.Grab(r[1], r[2], r[3], r[4])
+                MouseMove(axis = "x" ? -300 : 0, axis = "y" ? -300 : 0, 0, "R")
+                Sleep(150)
+                m := ScreenCoach.Measure(bufA, bufB, r[3], r[4], &why)
+                if !IsObject(m) {
+                    Toast.Show("warn", "CALIBRATE PX", "Failed: " why, "Aim at a textured wall and try again", "")
+                    return
+                }
+                res[axis] := Abs(axis = "y" ? m["dy"] : m["dx"]) / 300
+            }
+            if (res["y"] < 0.02 || res["x"] < 0.02) {
+                Toast.Show("warn", "CALIBRATE PX", "The view did not move (is the cursor free in a menu?)", "", "")
+                return
+            }
+            Cfg.Data["coach"]["pxy"] := Round(res["y"], 3)
+            Cfg.Data["coach"]["pxx"] := Round(res["x"], 3)
+            Cfg.Dirty()
+            Toast.Show("ok", "✓ PX PER COUNT", "vertical " Round(res["y"], 3) "   horizontal " Round(res["x"], 3), "The coach now converts errors to pull changes", "")
+        } catch as err {
+            Toast.Show("warn", "CALIBRATE PX", "Failed: " err.Message, "", "")
+        } finally
+            ScreenCoach.Busy := false
+    }
+}
+
+; ------------------------------------------------------------------------------
 ; 19. DIAGNOSTICS REPORT  (no paths, no user names, nothing private)
 ; ------------------------------------------------------------------------------
 class Diagnostics {
@@ -5424,6 +5716,7 @@ Cfg.Load()
 Ui.Recalc()
 DbgListener.Init()
 Hk.RegisterAll()
+try Hotkey("F11", (*) => ScreenCoach.CalibratePx(), "On")        ; measures px per mouse count for the screen coach
 View.Start()
 SlotSync.Set("PRIMARY", false)                       ; baseline: lock key OFF = primary
 SetTimer(() => Live.Poll(), 15)                  ; receives packets (DBWIN handshake needs quick service)
