@@ -5078,6 +5078,15 @@ class ScreenCoach {
         View.Changed()
     }
 
+    ; Relative mouse movement in small steps with mouse_event (MOUSEEVENTF_MOVE only). AHK's MouseMove sends an absolute
+    ; position, which a game reading raw input can take as a huge movement. 12 steps of total/12 counts.
+    static Nudge(dx, dy) {
+        loop 12 {
+            DllCall("mouse_event", "UInt", 0x0001, "Int", dx // 12, "Int", dy // 12, "UInt", 0, "UPtr", 0)
+            Sleep(8)
+        }
+    }
+
     ; F11 while holding the aim button: moves the mouse 300 counts down, then 300 right, and measures how many screen
     ; pixels the view moved each time. Do it with the sight you normally use (zoom changes the number).
     static CalibratePx() {
@@ -5097,10 +5106,10 @@ class ScreenCoach {
             res := Map()
             for axis in ["y", "x"] {
                 bufA := ScreenCoach.Grab(r[1], r[2], r[3], r[4])
-                MouseMove(axis = "x" ? 300 : 0, axis = "y" ? 300 : 0, 0, "R")
+                ScreenCoach.Nudge(axis = "x" ? 300 : 0, axis = "y" ? 300 : 0)
                 Sleep(200)
                 bufB := ScreenCoach.Grab(r[1], r[2], r[3], r[4])
-                MouseMove(axis = "x" ? -300 : 0, axis = "y" ? -300 : 0, 0, "R")
+                ScreenCoach.Nudge(axis = "x" ? -300 : 0, axis = "y" ? -300 : 0)       ; straight back to where you were
                 Sleep(150)
                 m := ScreenCoach.Measure(bufA, bufB, r[3], r[4], &why)
                 if !IsObject(m) {
