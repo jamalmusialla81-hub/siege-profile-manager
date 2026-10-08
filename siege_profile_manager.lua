@@ -165,7 +165,7 @@ local CONFIG = {
         requireBarrel = nil,             -- old Vora profiles only applied with this barrel; nil = any barrel
         secondary     = true,   -- recoil also works on the secondary weapon (e.g. SMG-12); false = primary only
         gain          = 1.0,             -- overall pull strength multiplier (tune mode edits this)
-        vertGain      = 1.4,             -- vertical-only multiplier on EVERY profile (Spear, Vora, table weapons); raise it if the pull is too weak
+        vertGain      = 1.6,             -- vertical-only multiplier on EVERY profile (Spear, Vora, table weapons); raise it if the pull is too weak
         estimateGain  = 1.0,             -- multiplies ONLY the estimated profiles (section 5c); raise it if they under-pull
         flatten       = 0.4,             -- 0..1: pull estimates toward one common per-shot kick (0 = keep class guesses)
         commonKick    = 145,             -- that common per-shot kick (Type-89 / C8-SFW level)
@@ -1198,6 +1198,9 @@ local RECOIL_PROFILES = {
     ["BEARING 9"]       = { r = 17, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 3, tym1 = 286, y2 = 2, tym2 = 573, strength = 1.0, side = 0, late = 1.3 },
     ["C75 AUTO"]        = { r = 14.9, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 315, y2 = 2, tym2 = 630, strength = 1.0, side = 0, late = 1 },
     ["SPSMG9"]          = { r = 14.9, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 321, y2 = 2, tym2 = 643, strength = 1.0, side = 0, late = 1 },
+    -- SPEAR .308 = the original estimate (r 13, strength 0.99, y 2/1 at 450/900 ms), written out, plus a small constant LEFT pull:
+    -- the wall test drifted ~75 px right over a ~355 px climb. Vertical comes from CONFIG.recoil.vertGain.
+    ["SPEAR .308"]   = { r = 13, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 450, y2 = 1, tym2 = 900, strength = 0.99, side = -0.3, late = 1 },
     -- SMG-12 (1270 rpm, V9 / H10): climbs harder than the generic estimate and the gun drifts LEFT, so the mouse pulls RIGHT
     -- with a bias that grows (x1 from 200 ms, x2 from 450 ms) with a heavier late climb. Phase times are Spear's rescaled to 1270 rpm.
     ["SMG-12"]       = { r = 18, x1 = 1, tm1 = 200, x2 = 1, tm2 = 450, y1 = 3, tym1 = 250, y2 = 2, tym2 = 500, strength = 1.0, side = 0.2, late = 1.3 },
