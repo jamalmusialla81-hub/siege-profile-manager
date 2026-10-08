@@ -1189,7 +1189,6 @@ local SEMI_AUTO = {}   -- weapon id -> fire-rate cap in rpm, for weapons where h
 --          measurements: SMGs low, 5.56 rifles mid, 7.62 / LMG high, DMRs and
 --          shotguns high per shot. Horizontal recoil is random per spray in
 --          Siege, so no sideways pull is estimated; the jitter covers it.
---   5th field (optional) = sideways bias per tick (+ right, - left) for guns with a known lateral sweep.
 --   Rows are scaled off the Spear .308 (700 rpm, kick 165 = vertical 4): kick = 165 * V / 4.
 --   pull per 7 ms tick = kick * rpm / 60 * 0.007, rescaled at runtime to your
 --   dpi * sensitivity. THESE ARE ESTIMATES: fine-tune any gun with the tune
@@ -1198,17 +1197,17 @@ local SEMI_AUTO = {}   -- weapon id -> fire-rate cap in rpm, for weapons where h
 local WEAPON_RECOIL = {
     -- assault rifles / carbines
     { "M4", 750, 206 },        { "L85A2", 670, 165 },     { "AR33", 749, 206 },
-    { "G36C", 780, 165 },      { "R4-C", 860, 248, nil, 0.1 },      { "556XI", 690, 165 },
-    { "F2", 980, 330 },        { "AK-12", 850, 289, nil, 0.15 },     { "AUG A2", 720, 165 },
+    { "G36C", 780, 165 },      { "R4-C", 860, 248 },      { "556XI", 690, 165 },
+    { "F2", 980, 330 },        { "AK-12", 850, 289 },     { "AUG A2", 720, 165 },
     { "552 COMMANDO", 690, 206 }, { "MK17 CQB", 585, 206 }, { "PARA-308", 650, 165 },
     { "C7E", 800, 206 },       { "M762", 730, 248 },      { "XK23", 675, 165 },
     { "SPEAR .308", 700, 165 }, { "AK-74M", 650, 165 },   { "ARX200", 700, 248 },
     { "F90", 740, 165 },       { "SC3000K", 800, 206 },   { "416-C", 740, 248 },
-    { "V308", 700, 206 },      { "ALDA 5.56", 900, 248 }, { "K1A", 720, 206, nil, 0.1 },
+    { "V308", 700, 206 },      { "ALDA 5.56", 900, 248 }, { "K1A", 720, 206 },
     { "PMR90A2", 750, 100 },   { "PCX-33", 745, 100 },    { "AUG A3", 700, 124 },
     -- LMGs
     { "M249", 650, 248 },      { "M249 SAW", 650, 248 },  { "6P41", 740, 289 },
-    { "G8A1", 850, 248 },      { "T-95 LSW", 650, 330, nil, -0.2 },  { "LMG-E", 650, 289 },
+    { "G8A1", 850, 248 },      { "T-95 LSW", 650, 330 },  { "LMG-E", 650, 289 },
     { "DP27", 550, 165 },
     -- SMGs / machine pistols
     { "PDW9", 800, 165 },       { "FMG-9", 800, 124 },      { "MP7", 900, 165 },
@@ -1217,7 +1216,7 @@ local WEAPON_RECOIL = {
     { "MPX", 830, 124 },        { "M12", 550, 82 },        { "MP5SD", 800, 124 },
     { "VECTOR .45 ACP", 1200, 248 }, { "SCORPION EVO 3 A1", 1080, 289 },
     { "MX4 STORM", 950, 165 }, { "P10 RONI", 980, 206 },    { "UZK50GI", 700, 206 },
-    { "9MM C1", 575, 82 },     { "SPSMG9", 980, 248 },     { "SMG-12", 1270, 371, nil, -0.35 },
+    { "9MM C1", 575, 82 },     { "SPSMG9", 980, 248 },     { "SMG-12", 1270, 371 },
     { "SMG-11", 1270, 371 },    { "BEARING 9", 1100, 330 },  { "C75 AUTO", 1000, 248 },
     -- full-auto shotguns
     { "FO-12", 400, 250 },
@@ -1253,26 +1252,72 @@ local WEAPON_RECOIL = {
     { "KERATOS .357", 480, 200, "semi" }, { "LUISON", 440, 110, "semi" },
 }
 
+
+-- Spray notes from the community spray table, for every weapon that has one.
+--   { H, mid, late, lateMul }   H = horizontal rating (Spear .308 = 3, the base)
+--   mid / late = sideways direction in the middle / late part of the spray (+ right, - left, 0 = unknown/random)
+--   lateMul = how much harder the late spray climbs (0.7 = tight/modest, 1 = moderate, 1.3 = wider/less stable)
+-- Phase times are Spear's (450 / 900 ms at 700 rpm) rescaled to the weapon's rpm, i.e. the same bullet counts.
+-- Horizontal size = 0.1 * (H - 2) counts per tick. Estimates are built for the plain weapon id AND for
+-- "<ID>:SUPPRESSOR:HORIZONTAL" (the loadout the Spear base was measured with, so no attachment multiplier applies).
+local SPRAY_NOTES = {
+    ["L85A2"]={3,0,0,0.7},  ["AR33"]={4,1,0,1},      ["G36C"]={4,0,0,1},     ["R4-C"]={5,1,-1,1.3},
+    ["556XI"]={3,1,1,1},    ["F2"]={6,0,0,1.3},      ["AK-12"]={6,1,1,1.3},  ["AUG A2"]={3,0,0,0.7},
+    ["552 COMMANDO"]={4,0,0,1}, ["416-C"]={5,0,0,1.3}, ["MK17 CQB"]={3,0,0,1}, ["PARA-308"]={3,0,0,0.7},
+    ["C7E"]={4,0,0,1},      ["M762"]={5,0,0,1.3},    ["V308"]={4,0,0,1},     ["SPEAR .308"]={3,0,0,1},
+    ["M4"]={4,0,0,1},       ["AK-74M"]={4,0,0,1},    ["ARX200"]={4,0,0,1},   ["F90"]={3,0,0,0.7},
+    ["SC3000K"]={4,0,0,1},  ["POF-9"]={5,0,0,1.3},   ["XK23"]={3,0,0,0.7},
+    ["FMG-9"]={3,0,0,0.7},  ["MP5K"]={3,0,0,0.7},    ["UMP45"]={2,0,0,0.7},  ["MP5"]={2,0,0,0.7},
+    ["P90"]={5,0,0,1.3},    ["9X19VSN"]={3,0,0,0.7}, ["MP7"]={4,0,0,1},      ["9MM C1"]={2,0,0,0.7},
+    ["MPX"]={2,0,0,0.7},    ["M12"]={2,0,0,0.7},     ["MP5SD"]={3,0,0,0.7},  ["VECTOR .45 ACP"]={5,0,0,1.3},
+    ["SCORPION EVO 3 A1"]={8,0,0,1.3}, ["K1A"]={5,1,1,1.3}, ["MX4 STORM"]={4,0,0,1}, ["AUG A3"]={3,0,0,0.7},
+    ["P10 RONI"]={4,0,0,1}, ["UZK50GI"]={4,0,0,1.3}, ["PDW9"]={4,0,0,1.3},
+    ["6P41"]={6,0,0,1.3},   ["G8A1"]={5,0,0,1.3},    ["M249"]={5,0,0,1.3},   ["LMG-E"]={6,0,0,1.3},
+    ["T-95 LSW"]={7,1,-1,1.3}, ["M249 SAW"]={5,0,0,1.3}, ["ALDA 5.56"]={5,0,0,1.3}, ["DP27"]={4,0,0,1},
+    ["SMG-11"]={7,0,0,1.3}, ["BEARING 9"]={7,0,0,1.3}, ["C75 AUTO"]={5,0,0,1}, ["SMG-12"]={10,-1,-1,1.3},
+    ["SPSMG9"]={5,0,0,1},
+}
+local ESTIMATE_LOADOUT = ":SUPPRESSOR:HORIZONTAL"
+
 local function BuildEstimatedProfiles()
     local tickMs = CONFIG.recoil.tickMs
     for _, w in ipairs(WEAPON_RECOIL) do
-        local id, rpm, kick, mode, side = w[1], w[2], w[3], w[4], w[5]
+        local id, rpm, kick, mode = w[1], w[2], w[3], w[4]
         if mode == "semi" then SEMI_AUTO[id] = rpm end          -- value = fire-rate cap (rpm)
-        if not RECOIL_PROFILES[id] then
+        local plainFree, keyedFree = not RECOIL_PROFILES[id], not RECOIL_PROFILES[id .. ESTIMATE_LOADOUT]
+        if plainFree or keyedFree then
             -- Community tables show recoil per shot is fairly even across guns (pull is mostly
             -- fire rate), so pull each estimate part of the way toward one common value.
             local f = CONFIG.recoil.flatten or 0
             kick = kick * (1 - f) + (CONFIG.recoil.commonKick or 145) * f
             local exact = kick * rpm / 60 * tickMs / 1000      -- counts per tick
             local r = math.max(1, math.floor(exact + 0.5))
-            RECOIL_PROFILES[id] = {
+            local n = SPRAY_NOTES[id]
+            local x1, x2, tm1, tm2, lateMul = 0, 0, 0, 0, 1
+            local k = 700 / rpm                                -- Spear's phase times, rescaled to this rpm
+            if n then
+                local mag = 0.1 * (n[1] - 2)
+                lateMul = n[4]
+                if n[2] ~= 0 or n[3] ~= 0 then
+                    x1 = n[2] * mag
+                    x2 = n[3] * mag * 1.3 - x1                 -- total late sideways = 1.3x the mid drift
+                    tm1, tm2 = math.floor(450 * k + 0.5), math.floor(900 * k + 0.5)
+                end
+            end
+            local prof = {
                 est = true,
-                r = r, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0,
-                y1 = math.max(1, math.floor(exact * 0.12 + 0.5)), tym1 = 450,
-                y2 = math.max(1, math.floor(exact * 0.10 + 0.5)), tym2 = 900,
+                r = r, x1 = x1, tm1 = tm1, x2 = x2, tm2 = tm2,
+                y1 = math.max(1, math.floor(exact * 0.12 + 0.5)), tym1 = math.floor(450 * k + 0.5),
+                y2 = math.max(1, math.floor(exact * 0.10 + 0.5)), tym2 = math.floor(900 * k + 0.5),
                 strength = math.floor(exact / r * CONFIG.recoil.estimateGain * 100 + 0.5) / 100,
-                side = side or 0,
+                late = lateMul,
             }
+            if plainFree then RECOIL_PROFILES[id] = prof end
+            if keyedFree and n then
+                local copy = {}
+                for key, v in pairs(prof) do copy[key] = v end
+                RECOIL_PROFILES[id .. ESTIMATE_LOADOUT] = copy
+            end
         end
     end
 end
