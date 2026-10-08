@@ -4680,6 +4680,7 @@ class Coach {
             w.Push(v), sumW += v
         }
         sA := 0, sB := 0, sC := 0, nA := 0, nB := 0, nC := 0, sX := 0, nX := 0
+        moved := 0                                            ; how much you actually corrected by hand (counts)
         loop nb {
             i := A_Index
             if (i = 1)
@@ -4692,6 +4693,7 @@ class Coach {
                 yr := yp[i] - (sumW > 0 ? fin["py"] * w[i] / sumW : 0)
                 xr := xp[i] - fin["px"] / nb
             }
+            moved += Abs(yr) + Abs(xr)
             ry := yr * 0.07 / sy
             rx := xr * 0.07 / sx
             tc := (i - 0.5) * 100
@@ -4702,6 +4704,11 @@ class Coach {
             else
                 sC += ry, nC++
             sX += rx, nX++
+        }
+        if (moved < 60) {
+            ; The score only sees YOUR corrections. No correction means "unknown", not "perfect": the old code scored it 100%.
+            Coach.Skip("no corrections from you in that spray, so there is nothing to score (this app cannot see where the bullets land)")
+            return
         }
         mA := nA ? sA / nA : 0, mB := nB ? sB / nB : 0, mC := nC ? sC / nC : 0, mX := nX ? sX / nX : 0
         n := nA + nB + nC
