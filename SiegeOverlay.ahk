@@ -4795,6 +4795,13 @@ class Coach {
         n := e["n"]
         if (n < 3 || !IsObject(e["base"]))
             return ""
+        ; LOCKED: when the average error of this round is under 4% of every phase's pull (and the sideways drift is
+        ; tiny) the profile is accurate: stop changing it instead of chasing noise.
+        rel := Max(Abs(e["A"] / n) / Max(e["pa"], 0.5), Abs(e["B"] / n) / Max(e["pb"], 0.5), Abs(e["C"] / n) / Max(e["pc"], 0.5))
+        if (rel < 0.04 && Abs(e["X"] / n) < 0.1) {
+            Coach.Msg := "profile LOCKED for " key ": the last " n " sprays were within " Round(rel * 100, 1) "% - nothing to change"
+            return ""
+        }
         b := e["base"]
         a2 := Coach.Bound(e["pa"] + Coach.Eta * e["A"] / n, b["a"])
         b2 := Coach.Bound(e["pb"] + Coach.Eta * e["B"] / n, b["b"])
@@ -4860,20 +4867,22 @@ class Coach {
 }
 
 ; ------------------------------------------------------------------------------
-; 18b. SCREEN COACH  (measures where the view really ends up, no corrections from you needed)
-;     Takes a picture of the top-left of the screen when a burst starts and another when it ends, and
-;     measures how far the picture moved (row / column brightness profiles, cross-correlated). The camera
-;     moved by recoil minus the macro's pull, so that movement IS the error. It feeds the same Coach
-;     records / proposals as before. F11 (hold ADS first) measures how many screen pixels one mouse count
-;     moves the view, so the error can be turned into a pull change; until then 0.4 px/count is assumed.
-;     Runs while the coach (F6) is ON and Siege is in front. It is conservative: an unclear picture
-;     (flat wall, repeating pattern) is skipped, never guessed.
+; 18b. SCREEN COACH  (measures where the view really ends up, phase by phase, no corrections from you needed)
+;     While a burst runs it takes a picture of the top-left of the screen every 250 ms and measures how far the
+;     picture moved between neighbouring pictures (row / column brightness profiles, cross-correlated). The camera
+;     moves by recoil minus the macro's pull, so each movement is the error of that part of the spray: EARLY, MID and
+;     LATE are measured separately and tuned separately. Vertical and sideways are judged independently, an unclear
+;     interval is skipped (never guessed), and once a profile is accurate the coach stops changing it (LOCKED).
+;     F11 (hold ADS, TRAINING on) measures how many screen pixels one mouse count moves the view; until then 0.4
+;     px/count is assumed. Training only (F12): in a match the picture changes for other reasons.
 ; ------------------------------------------------------------------------------
 class ScreenCoach {
-    static A := ""
+    static Frames := []
+    static TickFn := ""
     static Busy := false
     static RX := 0
     static RY := 0
+    static Stp := 6                         ; pixel stride of the analysis: keeps it short (the Lua waits for this script)
 
     ; Training only: the screen check is wrong in a match (you move, enemies appear, doors open) and the analysis can briefly
     ; hitch the Lua. It never runs unless you switch TRAINING on (F12) - and it switches itself off after 20 minutes.
@@ -4917,10 +4926,9 @@ class ScreenCoach {
         return buf
     }
 
-    ; Mean brightness per column and per row (every 4th pixel: keeps the analysis short, because the Lua waits for this
-    ; script while it runs), without a box around the crosshair.
+    ; Mean brightness per column and per row (every Stp-th pixel), without a box around the crosshair.
     static Profiles(buf, w, h) {
-        stp := 4
+        stp := ScreenCoach.Stp
         nx := w // stp, ny := h // stp
         sx := [], sy := [], cx := [], cy := []
         loop nx
@@ -4952,10 +4960,10 @@ class ScreenCoach {
         return Map("x", sx, "y", sy)
     }
 
-    ; First difference (kills lighting gradients), normalised to zero mean / unit spread. "" = too flat.
+    ; First difference (kills lighting gradients), normalised to zero mean / unit spread. "" = blank picture.
     static Prep(arr) {
         n := arr.Length - 1
-        if (n < 50)
+        if (n < 30)
             return ""
         dif := []
         i := 1
@@ -4971,7 +4979,7 @@ class ScreenCoach {
         for v in dif
             ss += (v - m) ** 2
         sd := Sqrt(ss / dif.Length)
-        if (sd < 0.02)                       ; averaged profiles of a plain target vary only a little: this just rejects a truly blank picture
+        if (sd < 0.02)
             return ""
         out := []
         for v in dif
@@ -5009,54 +5017,76 @@ class ScreenCoach {
         return Map("d", bd, "c", best, "sec", sec)
     }
 
-    ; Movement of picture B relative to picture A in pixels. Returns Map(dx, dy) or "" with the reason in why.
-    static Measure(bufA, bufB, w, h, &why) {
+    static Clear(sh) => (sh["c"] >= 0.4 && sh["c"] - sh["sec"] >= 0.03)
+
+    ; Prepared profiles of one picture, or "" when it is blank.
+    static Prof(buf, w, h) {
+        p := ScreenCoach.Profiles(buf, w, h)
+        px := ScreenCoach.Prep(p["x"]), py := ScreenCoach.Prep(p["y"])
+        return (IsObject(px) && IsObject(py)) ? Map("x", px, "y", py) : ""
+    }
+
+    ; Movement of picture B relative to picture A in pixels: Map(dx, dy) where an unclear axis is "" (and cx / cy hold the
+    ; match scores). Returns "" with the reason in why when neither axis is usable.
+    static Measure(pa, pb, &why) {
         why := ""
-        pa := ScreenCoach.Profiles(bufA, w, h)
-        pb := ScreenCoach.Profiles(bufB, w, h)
-        ax := ScreenCoach.Prep(pa["x"]), bx := ScreenCoach.Prep(pb["x"])
-        ay := ScreenCoach.Prep(pa["y"]), by := ScreenCoach.Prep(pb["y"])
-        if (!IsObject(ax) || !IsObject(bx) || !IsObject(ay) || !IsObject(by)) {
-            why := "the picture looks blank to the screen coach (is the game in borderless / windowed mode? exclusive fullscreen captures black)"
+        if (!IsObject(pa) || !IsObject(pb)) {
+            why := "a picture looks blank to the screen coach (is the game in borderless / windowed mode? exclusive fullscreen captures black)"
             return ""
         }
-        sy := ScreenCoach.Shift(ay, by, Min(75, ay.Length // 2 - 10))
-        sx := ScreenCoach.Shift(ax, bx, Min(75, ax.Length // 2 - 10))
-        Diag.Log(Format("screen match: vertical c={:.2f} next={:.2f} d={}   horizontal c={:.2f} next={:.2f} d={}"
-            , sy["c"], sy["sec"], sy["d"], sx["c"], sx["sec"], sx["d"]))
-        if (sy["c"] < 0.4 || sx["c"] < 0.4 || sy["c"] - sy["sec"] < 0.03 || sx["c"] - sx["sec"] < 0.03) {
+        sy := ScreenCoach.Shift(pa["y"], pb["y"], Min(60, pa["y"].Length // 2 - 10))
+        sx := ScreenCoach.Shift(pa["x"], pb["x"], Min(60, pa["x"].Length // 2 - 10))
+        st := ScreenCoach.Stp
+        m := Map("dx", ScreenCoach.Clear(sx) ? sx["d"] * st : "", "dy", ScreenCoach.Clear(sy) ? sy["d"] * st : ""
+            , "cx", sx["c"], "cy", sy["c"])
+        if (m["dx"] = "" && m["dy"] = "") {
             why := Format("the picture match was unclear (vertical {:.2f} vs {:.2f}, horizontal {:.2f} vs {:.2f}; needs 0.40 and a clear gap)"
                 , sy["c"], sy["sec"], sx["c"], sx["sec"])
             return ""
         }
-        return Map("dx", sx["d"] * 4, "dy", sy["d"] * 4)
+        return m
     }
 
+    ; ---- during a burst --------------------------------------------------------------------------
     static OnStart() {
-        ScreenCoach.A := ""
+        ScreenCoach.Frames := []
+        if (IsObject(ScreenCoach.TickFn))
+            SetTimer(ScreenCoach.TickFn, 0)
         if (ScreenCoach.Busy || !ScreenCoach.Active())
             return
+        ScreenCoach.Snap()
+        if !IsObject(ScreenCoach.TickFn)
+            ScreenCoach.TickFn := ObjBindMethod(ScreenCoach, "Snap")
+        SetTimer(ScreenCoach.TickFn, 250)
+    }
+
+    static Snap() {
+        if (ScreenCoach.Frames.Length >= 14) {
+            if IsObject(ScreenCoach.TickFn)
+                SetTimer(ScreenCoach.TickFn, 0)
+            return
+        }
         r := ScreenCoach.Region()
-        try ScreenCoach.A := Map("buf", ScreenCoach.Grab(r[1], r[2], r[3], r[4]), "t", A_TickCount)
+        try ScreenCoach.Frames.Push([A_TickCount, ScreenCoach.Grab(r[1], r[2], r[3], r[4])])
     }
 
     static OnEnd(e) {
-        if (!IsObject(ScreenCoach.A) || ScreenCoach.Busy)
-            return
-        a := ScreenCoach.A
-        ScreenCoach.A := ""
-        if (A_TickCount - a["t"] > 20000)
+        if IsObject(ScreenCoach.TickFn)
+            SetTimer(ScreenCoach.TickFn, 0)
+        fr := ScreenCoach.Frames
+        ScreenCoach.Frames := []
+        if (fr.Length = 0 || ScreenCoach.Busy)
             return
         py := Float(e.Get("py", 0)), ticks := Integer(e.Get("ticks", 0)), ms := Float(e.Get("ms", 0))
         if (py <= 0 || ticks < 40) {
-            Coach.Skip("screen check: hold fire a bit longer (the macro must pull for 0.5 s+)")
+            Coach.Skip("screen check: hold fire a bit longer (the macro must pull for 0.5 s or more)")
             return
         }
         ScreenCoach.Busy := true
         try {
             r := ScreenCoach.Region()
-            bufB := ScreenCoach.Grab(r[1], r[2], r[3], r[4])
-            ScreenCoach.Analyze(a["buf"], bufB, r[3], r[4], py, ticks, ms)
+            fr.Push([A_TickCount, ScreenCoach.Grab(r[1], r[2], r[3], r[4])])
+            ScreenCoach.Analyze(fr, r[3], r[4], py, ticks, ms)
         } catch as err {
             Diag.Log("screen coach: " err.Message)
             Coach.Skip("screen check failed: " err.Message)
@@ -5064,10 +5094,10 @@ class ScreenCoach {
             ScreenCoach.Busy := false
     }
 
-    static Analyze(bufA, bufB, w, h, py, ticks, ms) {
-        m := ScreenCoach.Measure(bufA, bufB, w, h, &why)
-        if !IsObject(m) {
-            Coach.Skip("screen check: " why)
+    static Analyze(fr, w, h, py, ticks, ms) {
+        n := fr.Length
+        if (n < 3) {
+            Coach.Skip("screen check: the spray was too short to sample (hold fire for 0.7 s or more)")
             return
         }
         key := Recorder.Key()
@@ -5084,19 +5114,56 @@ class ScreenCoach {
         sy := gain * (Coach.RefDpi * Coach.RefV) / (g["dpi"] * g["sensV"])
         sxs := gain * (Coach.RefDpi * Coach.RefH) / (g["dpi"] * g["sensH"])
         cyv := Cfg.Num("coach.pxy", 0.4), cxv := Cfg.Num("coach.pxx", 0.4)
-        resUp := m["dy"]                         ; picture moved DOWN = the view ended ABOVE where it started = macro too weak
-        resRight := -m["dx"]                     ; picture moved LEFT = the view ended to the RIGHT
-        meanPull := (pa + pb + pc) / 3
-        perTickY := Clamp((resUp / cyv) / ticks / sy, -0.5 * meanPull, 0.5 * meanPull)
-        perTickX := Clamp(-(resRight / cxv) / ticks / sxs, -3, 3)
-        acc := 100 * (1 - Min(1, Abs(perTickY) / Max(meanPull, 0.5) * 2))
-        Coach.Seen++
-        Coach.Result := Map("key", key, "acc", acc, "mA", perTickY, "mB", perTickY, "mC", perTickY, "mX", perTickX
+        prof := []
+        for f in fr
+            prof.Push(ScreenCoach.Prof(f[2], w, h))
+        tpm := ticks / Max(ms, 1)                       ; macro ticks per millisecond
+        t0 := fr[1][1]
+        sumY := [0, 0, 0], tkY := [0, 0, 0], sumX := 0, tkX := 0, used := 0
+        i := 1
+        while (i < n) {
+            m := ScreenCoach.Measure(prof[i], prof[i + 1], &why)
+            if IsObject(m) {
+                dt := fr[i + 1][1] - fr[i][1]
+                mid := (fr[i][1] + fr[i + 1][1]) / 2 - t0
+                ph := mid < t1 ? 1 : mid < t2 ? 2 : 3
+                tk := dt * tpm
+                if (m["dy"] != "")
+                    sumY[ph] += m["dy"], tkY[ph] += tk, used += 1
+                if (m["dx"] != "")
+                    sumX += -m["dx"], tkX += tk                 ; picture moved LEFT = the view drifted RIGHT
+            }
+            i += 1
+        }
+        if (used < 2) {
+            Coach.Skip("screen check: too few clear pictures in that spray (" used " of " (n - 1) ")" (IsSet(why) && why != "" ? ", last: " why : ""))
+            return
+        }
+        pulls := [pa, pb, pc]
+        res := [0, 0, 0]
+        loop 3 {
+            ph := A_Index
+            if (tkY[ph] > 0) {
+                mp := Max(pulls[ph], 0.5)
+                ; picture moved DOWN = the view ended ABOVE where it started = the macro pulled too little in this phase
+                res[ph] := Clamp((sumY[ph] / cyv) / tkY[ph] / sy, -0.5 * mp, 0.5 * mp)
+            }
+        }
+        mX := tkX > 0 ? Clamp(-(sumX / cxv) / tkX / sxs, -3, 3) : 0
+        wacc := 0, wsum := 0
+        loop 3 {
+            if (tkY[A_Index] > 0) {
+                wacc += Abs(res[A_Index]) / Max(pulls[A_Index], 0.5) * tkY[A_Index], wsum += tkY[A_Index]
+            }
+        }
+        acc := wsum ? 100 * (1 - Min(1, wacc / wsum * 2)) : 0
+        Coach.Result := Map("key", key, "acc", acc, "mA", res[1], "mB", res[2], "mC", res[3], "mX", mX
             , "pa", pa, "pb", pb, "pc", pc, "nA", 1, "nB", 1, "nC", 1, "dur", ms, "py", py, "t", A_Now)
-        Coach.Record(key, pa, pb, pc, pxs, t1, t2, perTickY, perTickY, perTickY, perTickX, acc)
-        Coach.Msg := "screen check: view ended " Abs(resUp) " px " (resUp >= 0 ? "ABOVE" : "BELOW") " and " Abs(resRight) " px to the "
-            . (resRight >= 0 ? "RIGHT" : "LEFT") " of where it started"
-            . (Cfg.Get("coach.pxy", "") = "" ? "  (press F11 holding ADS to calibrate px per count)" : "")
+        Coach.Seen++
+        Coach.Record(key, pa, pb, pc, pxs, t1, t2, res[1], res[2], res[3], mX, acc)
+        Coach.Msg := "screen coach: EARLY " Coach.Say(res[1], pa) "  ·  MID " Coach.Say(res[2], pb) "  ·  LATE " Coach.Say(res[3], pc)
+            . "  ·  sideways " (Abs(mX) < 0.08 ? "ok" : "drifts " (mX < 0 ? "RIGHT" : "LEFT"))
+            . (Cfg.Get("coach.pxy", "") = "" ? "   (press F11 holding ADS to calibrate px per count)" : "")
         View.Changed()
     }
 
@@ -5131,18 +5198,19 @@ class ScreenCoach {
             r := ScreenCoach.Region()
             res := Map()
             for axis in ["y", "x"] {
-                bufA := ScreenCoach.Grab(r[1], r[2], r[3], r[4])
+                pA := ScreenCoach.Prof(ScreenCoach.Grab(r[1], r[2], r[3], r[4]), r[3], r[4])
                 ScreenCoach.Nudge(axis = "x" ? 300 : 0, axis = "y" ? 300 : 0)
                 Sleep(200)
-                bufB := ScreenCoach.Grab(r[1], r[2], r[3], r[4])
+                pB := ScreenCoach.Prof(ScreenCoach.Grab(r[1], r[2], r[3], r[4]), r[3], r[4])
                 ScreenCoach.Nudge(axis = "x" ? -300 : 0, axis = "y" ? -300 : 0)       ; straight back to where you were
                 Sleep(150)
-                m := ScreenCoach.Measure(bufA, bufB, r[3], r[4], &why)
-                if !IsObject(m) {
-                    Toast.Show("warn", "CALIBRATE PX", "Failed: " why, "Aim at a textured wall and try again", "")
+                m := ScreenCoach.Measure(pA, pB, &why)
+                v := IsObject(m) ? m[axis = "y" ? "dy" : "dx"] : ""
+                if (v = "") {
+                    Toast.Show("warn", "CALIBRATE PX", "Failed: " (why != "" ? why : "that axis was unclear"), "Aim at a textured wall or the target and try again", "")
                     return
                 }
-                res[axis] := Abs(axis = "y" ? m["dy"] : m["dx"]) / 300
+                res[axis] := Abs(v) / 300
             }
             if (res["y"] < 0.02 || res["x"] < 0.02) {
                 Toast.Show("warn", "CALIBRATE PX", "The view did not move (is the cursor free in a menu?)", "", "")
