@@ -4952,7 +4952,7 @@ class ScreenCoach {
         for v in dif
             ss += (v - m) ** 2
         sd := Sqrt(ss / dif.Length)
-        if (sd < 0.3)
+        if (sd < 0.02)                       ; averaged profiles of a plain target vary only a little: this just rejects a truly blank picture
             return ""
         out := []
         for v in dif
@@ -4998,13 +4998,16 @@ class ScreenCoach {
         ax := ScreenCoach.Prep(pa["x"]), bx := ScreenCoach.Prep(pb["x"])
         ay := ScreenCoach.Prep(pa["y"]), by := ScreenCoach.Prep(pb["y"])
         if (!IsObject(ax) || !IsObject(bx) || !IsObject(ay) || !IsObject(by)) {
-            why := "the picture is too flat (aim at a textured wall or the range target)"
+            why := "the picture looks blank to the screen coach (is the game in borderless / windowed mode? exclusive fullscreen captures black)"
             return ""
         }
         sy := ScreenCoach.Shift(ay, by, Min(75, ay.Length // 2 - 10))
         sx := ScreenCoach.Shift(ax, bx, Min(75, ax.Length // 2 - 10))
-        if (sy["c"] < 0.5 || sx["c"] < 0.5 || sy["c"] - sy["sec"] < 0.05 || sx["c"] - sx["sec"] < 0.05) {
-            why := "the picture match was unclear (repeating pattern, or the view changed too much)"
+        Diag.Log(Format("screen match: vertical c={:.2f} next={:.2f} d={}   horizontal c={:.2f} next={:.2f} d={}"
+            , sy["c"], sy["sec"], sy["d"], sx["c"], sx["sec"], sx["d"]))
+        if (sy["c"] < 0.4 || sx["c"] < 0.4 || sy["c"] - sy["sec"] < 0.03 || sx["c"] - sx["sec"] < 0.03) {
+            why := Format("the picture match was unclear (vertical {:.2f} vs {:.2f}, horizontal {:.2f} vs {:.2f}; needs 0.40 and a clear gap)"
+                , sy["c"], sy["sec"], sx["c"], sx["sec"])
             return ""
         }
         return Map("dx", sx["d"] * 4, "dy", sy["d"] * 4)
