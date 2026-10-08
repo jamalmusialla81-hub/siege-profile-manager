@@ -15,7 +15,6 @@
       LALT   + MB5 / MB4 / LMB ................ next primary / next secondary / next grip
       LSHIFT + MB5 / MB4 ...................... next scope / next barrel
       RALT   + MB5 / MB4 / LMB ................ system on-off / debug on-off / redraw
-      LSHIFT + LMB ............................ recoil tune on-off
       RSHIFT + MB4 / MB5 ...................... start-cancel calibration / reset calibration
       RALT   + RMB / MMB ...................... next / prev saved (named) loadout
 
@@ -98,23 +97,10 @@ local CONFIG = {
             toggleSystem      = { mod = "ralt",   button = 5 },
             toggleDebug       = { mod = "ralt",   button = 4 },
             redraw            = { mod = "ralt",   button = 1 },
-            toggleRecoilTune  = { mod = "lshift", button = 1 },
             toggleCalibration = { mod = "rshift", button = 4 },
             resetCalibration  = { mod = "rshift", button = 5 },
             nextLoadout       = { mod = "ralt",   button = 2 },   -- named loadouts (V2)
             prevLoadout       = { mod = "ralt",   button = 3 },
-        },
-        -- Keys used while recoil tuning is active (MB5 / MB4 alone = raise / lower).
-        -- Letter keys such as Shift+P are impossible: G HUB Lua only sees modifier
-        -- keys and mouse buttons.
-        tune = {
-            -- mod = "none" means the button alone. Any of lshift/rshift/lalt/ralt also works,
-            -- e.g. up = { mod = "lshift", button = 5 } (the on-screen prompts keep saying MB5/MB4).
-            up    = { mod = "none",   button = 5 },   -- raise the current value
-            down  = { mod = "none",   button = 4 },   -- lower the current value
-            next  = { mod = "lalt",   button = 5 },   -- next step (last step: finish)
-            back  = { mod = "lalt",   button = 4 },   -- previous step
-            reset = { mod = "lshift", button = 4 },   -- reset this weapon
         },
     },
 
@@ -164,7 +150,7 @@ local CONFIG = {
         reference     = { dpi = 800, horizontal = 11, vertical = 11 },
         requireBarrel = nil,             -- old Vora profiles only applied with this barrel; nil = any barrel
         secondary     = true,   -- recoil also works on the secondary weapon (e.g. SMG-12); false = primary only
-        gain          = 1.0,             -- overall pull strength multiplier (tune mode edits this)
+        gain          = 1.0,             -- overall pull strength multiplier
         vertGain      = 1.8,             -- vertical-only multiplier on EVERY profile (Spear, Vora, table weapons); raise it if the pull is too weak
         estimateGain  = 1.0,             -- multiplies ONLY the estimated profiles (section 5c); raise it if they under-pull
         flatten       = 0.4,             -- 0..1: pull estimates toward one common per-shot kick (0 = keep class guesses)
@@ -272,7 +258,7 @@ local ACTION_ORDER = {
     { "nextScope", "Next scope" },         { "nextBarrel", "Next barrel" },
     { "nextGrip", "Next grip" },           { "toggleSystem", "System on/off" },
     { "toggleDebug", "Debug on/off" },     { "redraw", "Redraw" },
-    { "toggleRecoilTune", "Recoil tune" }, { "toggleCalibration", "Calibrate" },  { "resetCalibration", "Reset calib." },
+    { "toggleCalibration", "Calibrate" },  { "resetCalibration", "Reset calib." },
     { "nextLoadout", "Next loadout" },     { "prevLoadout", "Prev loadout" },
 }
 
@@ -1145,7 +1131,7 @@ local RECOIL_PROFILES = {
     -- effective = 10 x 1.8). V ratings are NOT used for vertical: Spear (V4) needed more pull than SMG-12 (V9).
     --   sideways  mag = 0.25 * (H - 2) counts per tick AGAINST the drift the table gives: half from ~450 ms, all by ~900 ms
     --             (Spear's phase times rescaled to the gun's rpm). Guns with no stated direction get none.
-    --   late      how much harder the late spray climbs (0.7 tight, 1 moderate, 1.3 wide).   Tune any line with LSHIFT + LMB.
+    --   late      how much harder the late spray climbs (0.7 tight, 1 moderate, 1.3 wide).
     ["L85A2"]           = { r = 11.6, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1.9, tym1 = 470, y2 = 1.3, tym2 = 940, strength = 1.0, side = 0, late = 0.7 },
     ["AR33"]            = { r = 11.6, x1 = -0.25, tm1 = 421, x2 = 0.25, tm2 = 841, y1 = 1.9, tym1 = 421, y2 = 1.3, tym2 = 841, strength = 1.0, side = 0, late = 1 },
     ["G36C"]            = { r = 12.4, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 404, y2 = 1.4, tym2 = 808, strength = 1.0, side = 0, late = 1 },
@@ -1205,7 +1191,7 @@ local RECOIL_PROFILES = {
     -- SMG-12 (1270 rpm, V9 / H10; r is pre-vertGain, ~18 effective): climbs harder than the generic estimate and the gun drifts LEFT, so the mouse pulls RIGHT
     -- with a bias that grows (x1 from 200 ms, x2 from 450 ms) with a heavier late climb. Phase times are Spear's rescaled to 1270 rpm.
     ["SMG-12"]       = { r = 10, x1 = 1, tm1 = 200, x2 = 1, tm2 = 450, y1 = 1.7, tym1 = 250, y2 = 1.1, tym2 = 500, strength = 1.0, side = 0.2, late = 1.3 },
-    -- tuned with the tune mode. Keys are WEAPON:BARREL:GRIP, so each loadout has its own profile.
+    -- Keys are WEAPON:BARREL:GRIP, so each loadout can have its own profile (learned ones arrive through the SPM_USER block).
     ["M4:SUPPRESSOR:HORIZONTAL"] = { r = 8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1, tym1 = 500, y2 = 1, tym2 = 900, strength = 3.90, side = -0.5, late = 1.00 },
 }
 
@@ -1227,20 +1213,6 @@ local function FindRecoilProfile(slot)
     return nil
 end
 
--- The exact line to paste into RECOIL_PROFILES for a profile (used by the console and the overlay).
-local function PasteLine(weapon, p)
-    return string.format("[\"%s\"] = { %sr = %g, x1 = %g, tm1 = %g, x2 = %g, tm2 = %g, y1 = %g, tym1 = %g, y2 = %g, tym2 = %g, strength = %.2f, side = %.2f, late = %.2f },",
-        weapon,
-        (p.operator and string.format("operator = \"%s\", ", p.operator) or "")
-            .. (p.barrel and string.format("barrel = \"%s\", ", p.barrel) or ""),
-        p.r, p.x1, p.tm1, p.x2, p.tm2, p.y1, p.tym1, p.y2, p.tym2,
-        p.strength or 1, p.side or 0, p.late or 1)
-end
-
--- Tune mode creates one of these for any primary that has no profile yet
--- (no `operator` key = usable by every operator that carries the weapon).
-local STARTER_PROFILE = { r = 8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1, tym1 = 500, y2 = 1, tym2 = 900 }
-
 -- Profiles from section 5c never overwrite an entry above; they are added to
 -- RECOIL_PROFILES (plain weapon key, `est = true`) by BuildEstimatedProfiles().
 local SEMI_AUTO = {}   -- weapon id -> fire-rate cap in rpm, for weapons where holding fire only shoots once
@@ -1258,8 +1230,8 @@ local SEMI_AUTO = {}   -- weapon id -> fire-rate cap in rpm, for weapons where h
 --          Siege, so no sideways pull is estimated; the jitter covers it.
 --   rpm comes from the spray table; kick stays the per-shot class value (pull = kick * rpm, so V must not scale kick again).
 --   pull per 7 ms tick = kick * rpm / 60 * 0.007, rescaled at runtime to your
---   dpi * sensitivity. THESE ARE ESTIMATES: fine-tune any gun with the tune
---   mode (LSHIFT + LMB), or scale them all with CONFIG.recoil.estimateGain.
+--   dpi * sensitivity. THESE ARE ESTIMATES: scale them all with
+--   CONFIG.recoil.estimateGain, or let the companion's coach learn a profile per loadout.
 --=====================================================================
 local WEAPON_RECOIL = {
     -- assault rifles / carbines
@@ -1394,25 +1366,6 @@ for id, cap in pairs(CONFIG.rapidFire.extraSemi or {}) do
     SEMI_AUTO[id] = (type(cap) == "number" and cap > 0) and cap or 400
 end
 
--- The three simple tune knobs. Every profile may carry them; missing = default.
---   strength  multiplies the whole vertical pull
---   side      constant sideways counts per tick (+ right, - left)
---   late      multiplies only the extra pull added late in the spray (y1/y2)
--- The raw timing numbers (r, x1, tm1 ...) stay editable in RECOIL_PROFILES.
--- Tuning is a 3-step guided check. `look` = what to watch for at that step,
--- `ask` = the two answers: MB5 raises the value, MB4 lowers it.
-local TUNE_FIELDS = {
-    { key = "strength", label = "VERTICAL", step = 0.10, def = 1, min = 0.1, fmt = "%.2f",
-      look = "Aim at ONE spot on the wall, spray, and see where the holes go compared with that spot.",
-      ask  = "Still UP: MB5 (pull more)    Sinks DOWN: MB4 (pull less)" },
-    { key = "side",     label = "SIDEWAYS", step = 0.25,  def = 0, min = -5,  fmt = "%+.1f",
-      look = "Same spray: do the holes wander LEFT or RIGHT of the spot?",
-      ask  = "Holes drift LEFT: MB5    Holes drift RIGHT: MB4" },
-    { key = "late",     label = "END OF SPRAY", step = 0.5, def = 1, min = 0, fmt = "%.2f",
-      look = "Only the LAST bullets of a full magazine matter here.",
-      ask  = "Last holes UP: MB5    Last holes DOWN: MB4" },
-}
-
 --=====================================================================
 -- 6. RUNTIME STATE
 --=====================================================================
@@ -1437,9 +1390,8 @@ local State = {
     lastFrame    = nil,
     lastEventKey = nil,
     lastEventMs  = -100000,
-    tune         = { active = false, field = 1, lines = {}, orig = {}, starter = {}, touched = {}, wasStarter = {}, streak = 0, lastDir = 0, lastMs = -100000 },
     slotLock     = nil,   -- last seen state of the slot-sync lock key
-    spray        = nil,   -- what the recoil loop did in the last burst {ms, n, x, y}   -- recoil tune mode
+    spray        = nil,   -- what the recoil loop did in the last burst {ms, n, x, y}
     session      = nil,   -- random id of this script run (companion detects G HUB restarts with it)
     seq          = 0,     -- one counter shared by SPMSTATE / SPMEVENT / SPMBEAT packets
     loadouts     = {},    -- operator name -> { active = index, dirty = bool, list = { {name, primary, secondary} } }
@@ -2128,12 +2080,6 @@ end
 --=====================================================================
 -- 12. CONSOLE RENDERER
 --=====================================================================
-local function TuneValue(f, p)
-    local v = p[f.key]
-    if v == nil then v = f.def end
-    return string.format(f.fmt, v)
-end
-
 -- One-line answer to "why isn't the recoil macro doing anything?"
 local function RecoilStatus()
     local cfg = CONFIG.recoil
@@ -2152,7 +2098,7 @@ local function RecoilStatus()
         return "idle - needs " .. need .. " (have " .. tostring(slot.barrel) .. ", LSHIFT+MB4)"
     end
     return string.format("READY  %s%s", slot.weapon,
-        State.tune.starter[key] and "  (starter values, tune me)" or (p.est and "  (estimated profile)" or ""))
+        p.est and "  (estimated profile)" or "")
 end
 
 -- What the recoil loop did during the last burst (shows the macro is alive).
@@ -2188,7 +2134,6 @@ local function NextHint()
         return "Calibrating: hover the corner, press " .. BindText(kb.toggleCalibration)
             .. " (" .. BindText(kb.resetCalibration) .. " cancels)"
     end
-    if State.tune.active then return "Tuning: spray at a wall, then answer with MB5 / MB4" end
     if not cfg.enabled then return "Recoil is disabled in CONFIG.recoil.enabled" end
     local slot = ActiveWeaponSlot()
     if not slot or not slot.weapon then
@@ -2199,18 +2144,15 @@ local function NextHint()
     end
     local p, key, exact = FindRecoilProfile(slot)
     if not p then
-        return "No profile for this exact loadout. Press " .. BindText(kb.toggleRecoilTune) .. " to create + tune one"
+        return "No recoil profile for this exact loadout"
     end
     if p.operator and p.operator ~= CurrentOperator().name then return "This profile belongs to " .. p.operator end
     local need = (not exact) and (p.barrel or cfg.requireBarrel) or nil
     if need and slot.barrel ~= need then
         return "Switch barrel to " .. need .. " (" .. BindText(kb.nextBarrel) .. ")"
     end
-    if State.tune.starter[key] then
-        return "Starter profile: tune it with " .. BindText(kb.toggleRecoilTune) .. " in the range"
-    end
     if p.est then
-        return "Estimated profile. Hold ADS + fire; tune: " .. BindText(kb.toggleRecoilTune)
+        return "Estimated profile. Hold ADS + fire"
     end
     return "Ready. Hold ADS + fire (keep the loadout above = your in-game one)"
 end
@@ -2262,26 +2204,6 @@ local function BuildFrame()
         tostring(GetADS(slot.scope)), S.mid, tostring(CONFIG.fov), S.mid,
         CONFIG.resolution.width, CONFIG.resolution.height, S.mid, presetName,
         ""))
-
-    if State.tune.active then
-        rule(S.ml, S.mr)
-        local tp = FindRecoilProfile(ActiveWeaponSlot())
-        if tp then
-            local tf = TUNE_FIELDS[State.tune.field]
-            local last = (State.tune.field == #TUNE_FIELDS)
-            row(string.format("RECOIL TUNE - %s   STEP %d of %d: %s   (now %s)",
-                tostring(ActiveWeaponSlot().weapon), State.tune.field, #TUNE_FIELDS,
-                tf.label, TuneValue(tf, tp)))
-            row("HOW: hold RIGHT mouse (ADS) + LEFT mouse (fire) at a wall, then look at the holes.")
-            row(tf.look)
-            row(tf.ask)
-            local tk = CONFIG.input.tune
-            row("Looks good?  " .. BindText(tk.next) .. " = " .. (last and "FINISH" or "next step")
-                .. "    " .. BindText(tk.back) .. " = back    " .. BindText(tk.reset) .. " = reset")
-        else
-            row("RECOIL TUNE - no weapon to tune in this slot")
-        end
-    end
 
     rule(S.ml, S.mr)
     local stats = State.gridStats[State.side]
@@ -2390,9 +2312,9 @@ local function ExportState()
             profileText = "N/A (secondary is off)"
         elseif FindRecoilProfile(slot) then
             local _, fk = FindRecoilProfile(slot)
-            profileText = State.tune.starter[fk] and "STARTER - tune it" or "TUNED"
+            profileText = "TUNED"
         else
-            profileText = "NONE - " .. BindText(CONFIG.input.keybinds.toggleRecoilTune) .. " to create"
+            profileText = "NONE"
         end
     end
     local _, gridLabel = GetGridSpec(State.side)
@@ -2411,8 +2333,7 @@ local function ExportState()
     local pf, pk = FindRecoilProfile(slot)
     local profileKind = "NONE"
     if pf then
-        if State.tune.starter[pk] then profileKind = "STARTER"
-        elseif pf.learned then profileKind = "LEARNED"
+        if pf.learned then profileKind = "LEARNED"
         elseif pf.est then profileKind = "ESTIMATED"
         elseif pk == RecoilKey(slot) then profileKind = "TUNED"
         else profileKind = "BUILT-IN" end
@@ -2470,28 +2391,6 @@ local function ExportState()
         { "fire", FireStatus() },
         { "next", NextHint() },
         { "spray", SprayText() },
-        { "paste", (function()
-            local tp, k = FindRecoilProfile(ActiveWeaponSlot())
-            return (tp and State.tune.touched[k]) and PasteLine(k, tp) or "-"
-        end)() },
-        { "tune", State.tune.active and 1 or 0 },
-        { "tune_step", State.tune.active and (State.tune.field .. "/" .. #TUNE_FIELDS) or "-" },
-        { "tune_name", State.tune.active and TUNE_FIELDS[State.tune.field].label or "-" },
-        { "tune_val", State.tune.active and (function()
-            local tp, k = FindRecoilProfile(ActiveWeaponSlot())
-            if not tp then return "-" end
-            local f = TUNE_FIELDS[State.tune.field]
-            local o = State.tune.orig[k]
-            local base = o and o[f.key]
-            if base == nil then base = f.def end
-            local delta = (tp[f.key] == nil and f.def or tp[f.key]) - base
-            return TuneValue(f, tp) .. (math.abs(delta) > 1e-9 and string.format("  (%+.2f)", delta) or "")
-        end)() or "-" },
-        { "tune_look", State.tune.active and TUNE_FIELDS[State.tune.field].look or "-" },
-        { "tune_ask", State.tune.active and TUNE_FIELDS[State.tune.field].ask or "-" },
-        { "tune_next", BindText(CONFIG.input.tune.next) .. " = " ..
-            ((State.tune.active and State.tune.field >= #TUNE_FIELDS) and "FINISH" or "next step") },
-        { "tune_reset", BindText(CONFIG.input.tune.reset) .. " = reset" },
         { "debug", State.debug and 1 or 0 },
         -- module states (ENABLED / DISABLED / ACTIVE / UNAVAILABLE), straight from the Lua
         { "m_system", State.enabled and "ENABLED" or "DISABLED" },
@@ -2513,7 +2412,6 @@ local function ExportState()
         { "m_rapid", (rf.enabled and runnable) and "ENABLED" or "DISABLED" },
         { "rapid_cfg", rf.enabled and 1 or 0 },
         { "rapid_cap", semiCap or "-" },
-        { "m_tune", State.tune.active and "ACTIVE" or "ENABLED" },
         { "m_debug", State.debug and "ENABLED" or "DISABLED" },
         { "grid", gridLabel },
         { "fav_n", favCount },
@@ -2579,9 +2477,6 @@ local function Render(force)
     for _, line in ipairs(lines) do
         OutputLogMessage((line:gsub("%%", "")) .. "\n")   -- '%' stripped: OutputLogMessage may treat it as a format code
     end
-    for _, line in ipairs(State.tune.lines) do
-        OutputLogMessage((line:gsub("%%", "")) .. "\n")
-    end
 end
 
 --=====================================================================
@@ -2617,134 +2512,8 @@ local function ToggleCalibration()
         or "outer TOP-LEFT of tile (1,1)"))
 end
 
--- RECOIL TUNE MODE
---   LSHIFT+LMB toggles (CONFIG.input.keybinds.toggleRecoilTune). While active:
---     3 steps: VERTICAL, SIDEWAYS, END OF SPRAY. Watch the bullet holes,
---     MB5 / MB4 (no modifier) answer the question shown
---     next / back / reset keys are CONFIG.input.tune (default LALT+MB5 / LALT+MB4 / LSHIFT+MB4)
---   Edits apply live to the current primary weapon's profile: fire in the
---   range and adjust. A weapon with no profile gets a STARTER_PROFILE.
---   The knobs and live values are shown in the frame; the paste-ready
---   line is printed under it and stays after leaving tune mode.
-
--- Returns profile, key for the CURRENT exact loadout. create = make one when missing:
--- a copy of the closest existing profile for this weapon (so tuning starts from what
--- works), else a fresh starter.
-local function TuneProfile(create)
-    local slot = ActiveWeaponSlot()
-    if not slot or not slot.weapon then return nil end
-    local key = RecoilKey(slot)
-    local p = RECOIL_PROFILES[key]
-    if not p and create then
-        local base, baseKey = FindRecoilProfile(slot)
-        if base then
-            p = CopyTable(base)
-            p.barrel = nil                       -- the key already says which loadout this is for
-            State.tune.starter[key] = State.tune.starter[baseKey] or nil
-        else
-            p = CopyTable(STARTER_PROFILE)
-            State.tune.starter[key] = true
-        end
-        State.tune.wasStarter[key] = State.tune.starter[key]
-        RECOIL_PROFILES[key] = p
-    end
-    if p and not State.tune.orig[key] then State.tune.orig[key] = CopyTable(p) end
-    return p, key
-end
-
-local function TuneRefresh()
-    local t = State.tune
-    local p, weapon = TuneProfile(true)
-    if not p then
-        t.lines = {}
-        Notify("Recoil tune: no weapon to tune in this slot")
-        return
-    end
-    local f = TUNE_FIELDS[t.field]
-    Notify(string.format("TUNE STEP %d/%d %s = %s  -  %s", t.field, #TUNE_FIELDS, f.label, TuneValue(f, p), f.ask))
-    t.lines = { " " .. PasteLine(weapon, p) }
-end
-
-local function TuneReset()
-    local p, weapon = TuneProfile()
-    if not p then return end
-    for _, f in ipairs(TUNE_FIELDS) do p[f.key] = nil end
-    for k, v in pairs(State.tune.orig[weapon]) do p[k] = v end
-    State.tune.starter[weapon] = State.tune.wasStarter[weapon]
-    State.tune.touched[weapon] = nil
-    TuneRefresh()
-    Notify("TUNE " .. weapon .. ": reset to the values you started with")
-end
-
-local function TuneAdjust(dir)
-    local p, key = TuneProfile(true)
-    if not p then TuneRefresh() return end
-    local f = TUNE_FIELDS[State.tune.field]
-    local cur = p[f.key]
-    if cur == nil then cur = f.def end
-    -- Tapping the same direction repeatedly speeds up: x1 for presses 1-3, x2 for 4-6, x3, then x4
-    local t = State.tune
-    local now = GetRunningTime()
-    if dir == t.lastDir and (now - t.lastMs) < 1500 then t.streak = t.streak + 1 else t.streak = 0 end
-    t.lastDir, t.lastMs = dir, now
-    local mult = math.min(4, 1 + math.floor(t.streak / 3))
-    local v = math.floor((cur + dir * f.step * mult) * 100 + 0.5) / 100
-    p[f.key] = math.max(f.min, v)
-    p.est = nil                     -- you've tuned it: no longer just an estimate
-    p.learned = nil
-    State.tune.starter[key] = nil   -- ...and no longer a raw starter
-    State.tune.touched[key] = true
-    TuneRefresh()
-end
-
-local function ToggleRecoilTune()
-    local t = State.tune
-    t.active = not t.active
-    if t.active then
-        t.field = 1
-        TuneProfile(true)
-        TuneRefresh()
-    else
-        Notify(Sym().check .. " TUNING DONE - copy the line under the box into RECOIL_PROFILES to keep it")
-        -- t.lines is kept so the final values stay visible
-    end
-end
-
--- Returns true when the click was consumed by tune mode.
--- MB5 = +, MB4 = -   |   CONFIG.input.tune: next step (last: finish) / back / reset
-local function HandleTuneButton(button, held)
-    local t = State.tune
-    if not t.active then return false end
-    local tk = CONFIG.input.tune
-    local function is(bind)
-        if bind.mod == "none" then return #held == 0 and button == bind.button end
-        return #held == 1 and held[1] == bind.mod and button == bind.button
-    end
-    if is(tk.up) then
-        TuneAdjust(1)
-    elseif is(tk.down) then
-        TuneAdjust(-1)
-    elseif is(tk.next) then
-        if t.field >= #TUNE_FIELDS then
-            ToggleRecoilTune()          -- last step: finish
-        else
-            t.field = t.field + 1
-            TuneRefresh()
-        end
-    elseif is(tk.back) then
-        t.field = math.max(1, t.field - 1)
-        TuneRefresh()
-    elseif is(tk.reset) then
-        TuneReset()
-    else
-        return false
-    end
-    return true
-end
-
 -- always = true: still works while the system is disabled.
 local ACTIONS = {
-    toggleRecoilTune  = { always = true, run = ToggleRecoilTune },
     nextOperator      = { run = function() StepOperator(1) end },
     prevOperator      = { run = function() StepOperator(-1) end },
     nextFavorite      = { run = function() StepFavorite(1) end },
@@ -2809,7 +2578,6 @@ end
 
 local function HandleMouseButton(button)
     local held = HeldModifiers()
-    if HandleTuneButton(button, held) then return true end
     if #held > 1 and button == CONFIG.input.selectButton then
         -- e.g. Right Shift + another modifier: say so instead of doing nothing
         for _, m in ipairs(held) do

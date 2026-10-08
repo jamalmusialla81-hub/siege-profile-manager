@@ -4269,7 +4269,7 @@ class Hk {
         ["ATTACHMENTS", "nextGrip", "Next grip", "lalt", 1],
         ["CALIBRATION", "toggleCalibration", "Calibrate: start / set corner", "rshift", 4], ["CALIBRATION", "resetCalibration", "Cancel / reset calibration", "rshift", 5],
         ["SYSTEM", "toggleSystem", "System on/off", "ralt", 5], ["SYSTEM", "toggleDebug", "Debug on/off", "ralt", 4],
-        ["SYSTEM", "redraw", "Redraw / resend state", "ralt", 1], ["SYSTEM", "toggleRecoilTune", "Recoil tune on/off", "lshift", 1]
+        ["SYSTEM", "redraw", "Redraw / resend state", "ralt", 1]
     ]
     static AhkDefaults := Map("mode", "F8", "visible", "F9", "capture", "F7", "profiles", "F10", "record", "F6")
     static AhkLabels := Map("mode", "Compact HUD / Control centre", "visible", "Show / hide everything"
@@ -5307,7 +5307,6 @@ class Diagnostics {
         if (hint != "")
             t .= "  ⚠ " hint "`n"
         t .= Format("{:-22s}{:-18s}{}", "  RECOIL COACH", Recorder.On ? "▶ ACTIVE" : "○ DISABLED", "scored " (Coach.Seen - Coach.Skipped) ", skipped " Coach.Skipped ", mouse test: " (Coach.Mode() != "" ? Coach.Mode() : "not done") "  (" Coach.Msg ")") "`n"
-        t .= Diagnostics.Mod("RECOIL TUNE", "m_tune", g("tune", "0") = "1" ? "step " g("tune_step", "?") " " g("tune_name", "") : "")
         t .= Diagnostics.Mod("DEBUG LOG", "m_debug")
         t .= Format("{:-22s}{:-18s}{}", "LOADOUT MANAGER", "✓ ENABLED", "loadout " g("loadout", "-") " (" g("loadout_n", "0") " saved), " g("fav_n", "?") " favourites") "`n"
         lk := Live.Status
