@@ -165,7 +165,7 @@ local CONFIG = {
         requireBarrel = nil,             -- old Vora profiles only applied with this barrel; nil = any barrel
         secondary     = true,   -- recoil also works on the secondary weapon (e.g. SMG-12); false = primary only
         gain          = 1.0,             -- overall pull strength multiplier (tune mode edits this)
-        vertGain      = 1.6,             -- vertical-only multiplier on EVERY profile (Spear, Vora, table weapons); raise it if the pull is too weak
+        vertGain      = 2.0,             -- vertical-only multiplier on EVERY profile (Spear, Vora, table weapons); raise it if the pull is too weak
         estimateGain  = 1.0,             -- multiplies ONLY the estimated profiles (section 5c); raise it if they under-pull
         flatten       = 0.4,             -- 0..1: pull estimates toward one common per-shot kick (0 = keep class guesses)
         commonKick    = 145,             -- that common per-shot kick (Type-89 / C8-SFW level)
