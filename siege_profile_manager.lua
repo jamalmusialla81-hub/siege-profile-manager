@@ -1201,7 +1201,7 @@ local RECOIL_PROFILES = {
     ["SPSMG9"]          = { r = 8.7, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1.4, tym1 = 321, y2 = 1, tym2 = 643, strength = 1.0, side = 0, late = 1 },
     -- SPEAR .308 = the original estimate (r 13, strength 0.99, y 2/1 at 450/900 ms), written out, plus a small constant LEFT pull:
     -- the wall test drifted ~75 px right over a ~355 px climb. Vertical comes from CONFIG.recoil.vertGain.
-    ["SPEAR .308"]   = { r = 13, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 450, y2 = 1, tym2 = 900, strength = 0.99, side = -0.3, late = 1 },
+    ["SPEAR .308"]   = { r = 13, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 450, y2 = 1, tym2 = 900, strength = 0.99, side = -0.45, late = 1 },
     -- SMG-12 (1270 rpm, V9 / H10; r is pre-vertGain, ~18 effective): climbs harder than the generic estimate and the gun drifts LEFT, so the mouse pulls RIGHT
     -- with a bias that grows (x1 from 200 ms, x2 from 450 ms) with a heavier late climb. Phase times are Spear's rescaled to 1270 rpm.
     ["SMG-12"]       = { r = 10, x1 = 1, tm1 = 200, x2 = 1, tm2 = 450, y1 = 1.7, tym1 = 250, y2 = 1.1, tym2 = 500, strength = 1.0, side = 0.2, late = 1.3 },
