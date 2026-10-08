@@ -1141,15 +1141,15 @@ local RECOIL_PROFILES = {
     -- Hand-style profiles for the spray table. Vertical r = 12.8 * (1 + 0.04 * (V - 4)): Spear .308 (V4) = 12.8, and the
     -- same line gives ~14 for Type-89 (V6) and ~16 for C8-SFW (V8), matching their tuned profiles. r does not scale with rpm
     -- (tuned guns keep roughly the same pull per tick), only the phase times do (Spear's 450 / 900 ms at 700 rpm, rescaled).
-    -- Sideways = 0.1 * (H - 2) counts per tick in the direction the table gives (late = 1.3x); guns with no stated direction
+    -- Sideways = 0.1 * (H - 2) counts per tick AGAINST the drift the table gives (gun drifts left -> mouse + right; late = 1.3x); guns with no stated direction
     -- get none, the jitter covers them. late = how much harder the late spray climbs. Tune any line with LSHIFT + LMB.
     ["L85A2"]           = { r = 12.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 470, y2 = 1, tym2 = 940, strength = 1.0, side = 0, late = 0.7 },
-    ["AR33"]            = { r = 13.3, x1 = 0.2, tm1 = 421, x2 = -0.2, tm2 = 841, y1 = 2, tym1 = 421, y2 = 1, tym2 = 841, strength = 1.0, side = 0, late = 1 },
+    ["AR33"]            = { r = 13.3, x1 = -0.2, tm1 = 421, x2 = 0.2, tm2 = 841, y1 = 2, tym1 = 421, y2 = 1, tym2 = 841, strength = 1.0, side = 0, late = 1 },
     ["G36C"]            = { r = 12.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 404, y2 = 1, tym2 = 808, strength = 1.0, side = 0, late = 1 },
-    ["R4-C"]            = { r = 13.8, x1 = 0.3, tm1 = 366, x2 = -0.69, tm2 = 733, y1 = 2, tym1 = 366, y2 = 1, tym2 = 733, strength = 1.0, side = 0, late = 1.3 },
-    ["556XI"]           = { r = 12.8, x1 = 0.1, tm1 = 457, x2 = 0.03, tm2 = 913, y1 = 2, tym1 = 457, y2 = 1, tym2 = 913, strength = 1.0, side = 0, late = 1 },
+    ["R4-C"]            = { r = 13.8, x1 = -0.3, tm1 = 366, x2 = 0.69, tm2 = 733, y1 = 2, tym1 = 366, y2 = 1, tym2 = 733, strength = 1.0, side = 0, late = 1.3 },
+    ["556XI"]           = { r = 12.8, x1 = -0.1, tm1 = 457, x2 = -0.03, tm2 = 913, y1 = 2, tym1 = 457, y2 = 1, tym2 = 913, strength = 1.0, side = 0, late = 1 },
     ["F2"]              = { r = 14.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 321, y2 = 1, tym2 = 643, strength = 1.0, side = 0, late = 1.3 },
-    ["AK-12"]           = { r = 14.3, x1 = 0.4, tm1 = 371, x2 = 0.12, tm2 = 741, y1 = 2, tym1 = 371, y2 = 1, tym2 = 741, strength = 1.0, side = 0, late = 1.3 },
+    ["AK-12"]           = { r = 14.3, x1 = -0.4, tm1 = 371, x2 = -0.12, tm2 = 741, y1 = 2, tym1 = 371, y2 = 1, tym2 = 741, strength = 1.0, side = 0, late = 1.3 },
     ["AUG A2"]          = { r = 12.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 438, y2 = 1, tym2 = 875, strength = 1.0, side = 0, late = 0.7 },
     ["552 COMMANDO"]    = { r = 13.3, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 457, y2 = 1, tym2 = 913, strength = 1.0, side = 0, late = 1 },
     ["416-C"]           = { r = 13.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 426, y2 = 1, tym2 = 851, strength = 1.0, side = 0, late = 1.3 },
@@ -1179,7 +1179,7 @@ local RECOIL_PROFILES = {
     ["MP5SD"]           = { r = 12.3, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1, tym1 = 394, y2 = 1, tym2 = 788, strength = 1.0, side = 0, late = 0.7 },
     ["VECTOR .45 ACP"]  = { r = 13.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 262, y2 = 1, tym2 = 525, strength = 1.0, side = 0, late = 1.3 },
     ["SCORPION EVO 3 A1"] = { r = 14.3, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 292, y2 = 1, tym2 = 583, strength = 1.0, side = 0, late = 1.3 },
-    ["K1A"]             = { r = 13.3, x1 = 0.3, tm1 = 438, x2 = 0.09, tm2 = 875, y1 = 2, tym1 = 438, y2 = 1, tym2 = 875, strength = 1.0, side = 0, late = 1.3 },
+    ["K1A"]             = { r = 13.3, x1 = -0.3, tm1 = 438, x2 = -0.09, tm2 = 875, y1 = 2, tym1 = 438, y2 = 1, tym2 = 875, strength = 1.0, side = 0, late = 1.3 },
     ["MX4 STORM"]       = { r = 12.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 332, y2 = 1, tym2 = 663, strength = 1.0, side = 0, late = 1 },
     ["AUG A3"]          = { r = 12.3, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1, tym1 = 450, y2 = 1, tym2 = 900, strength = 1.0, side = 0, late = 0.7 },
     ["P10 RONI"]        = { r = 13.3, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 321, y2 = 1, tym2 = 643, strength = 1.0, side = 0, late = 1 },
@@ -1189,7 +1189,7 @@ local RECOIL_PROFILES = {
     ["G8A1"]            = { r = 13.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 371, y2 = 1, tym2 = 741, strength = 1.0, side = 0, late = 1.3 },
     ["M249"]            = { r = 13.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 485, y2 = 1, tym2 = 969, strength = 1.0, side = 0, late = 1.3 },
     ["LMG-E"]           = { r = 14.3, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 485, y2 = 1, tym2 = 969, strength = 1.0, side = 0, late = 1.3 },
-    ["T-95 LSW"]        = { r = 14.8, x1 = 0.5, tm1 = 485, x2 = -1.15, tm2 = 969, y1 = 2, tym1 = 485, y2 = 1, tym2 = 969, strength = 1.0, side = 0, late = 1.3 },
+    ["T-95 LSW"]        = { r = 14.8, x1 = -0.5, tm1 = 485, x2 = 1.15, tm2 = 969, y1 = 2, tym1 = 485, y2 = 1, tym2 = 969, strength = 1.0, side = 0, late = 1.3 },
     ["M249 SAW"]        = { r = 13.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 485, y2 = 1, tym2 = 969, strength = 1.0, side = 0, late = 1.3 },
     ["ALDA 5.56"]       = { r = 13.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 350, y2 = 1, tym2 = 700, strength = 1.0, side = 0, late = 1.3 },
     ["DP27"]            = { r = 12.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 573, y2 = 1, tym2 = 1145, strength = 1.0, side = 0, late = 1 },
@@ -1197,9 +1197,9 @@ local RECOIL_PROFILES = {
     ["BEARING 9"]       = { r = 14.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 286, y2 = 1, tym2 = 573, strength = 1.0, side = 0, late = 1.3 },
     ["C75 AUTO"]        = { r = 13.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 315, y2 = 1, tym2 = 630, strength = 1.0, side = 0, late = 1 },
     ["SPSMG9"]          = { r = 13.8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 2, tym1 = 321, y2 = 1, tym2 = 643, strength = 1.0, side = 0, late = 1 },
-    -- SMG-12 (1270 rpm, V9 / H10): climbs ~25% harder than the generic estimate, then a left bias that grows
-    -- (x1 from 200 ms, x2 from 450 ms) with a heavier late climb. Phase times are Spear's rescaled to 1270 rpm.
-    ["SMG-12"]       = { r = 16, x1 = -1, tm1 = 200, x2 = -1, tm2 = 450, y1 = 3, tym1 = 250, y2 = 2, tym2 = 500, strength = 1.0, side = -0.2, late = 1.3 },
+    -- SMG-12 (1270 rpm, V9 / H10): climbs harder than the generic estimate and the gun drifts LEFT, so the mouse pulls RIGHT
+    -- with a bias that grows (x1 from 200 ms, x2 from 450 ms) with a heavier late climb. Phase times are Spear's rescaled to 1270 rpm.
+    ["SMG-12"]       = { r = 18, x1 = 1, tm1 = 200, x2 = 1, tm2 = 450, y1 = 3, tym1 = 250, y2 = 2, tym2 = 500, strength = 1.0, side = 0.2, late = 1.3 },
     -- tuned with the tune mode. Keys are WEAPON:BARREL:GRIP, so each loadout has its own profile.
     ["M4:SUPPRESSOR:HORIZONTAL"] = { r = 8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1, tym1 = 500, y2 = 1, tym2 = 900, strength = 3.90, side = -0.5, late = 1.00 },
 }
@@ -1362,8 +1362,8 @@ local function BuildEstimatedProfiles()
                 local mag = 0.1 * (n[1] - 2)
                 lateMul = n[4]
                 if n[2] ~= 0 or n[3] ~= 0 then
-                    x1 = n[2] * mag
-                    x2 = n[3] * mag * 1.3 - x1                 -- total late sideways = 1.3x the mid drift
+                    x1 = -n[2] * mag                               -- counter the drift: gun right -> mouse left
+                    x2 = -n[3] * mag * 1.3 - x1                 -- total late sideways = 1.3x the mid drift
                     tm1, tm2 = math.floor(450 * k + 0.5), math.floor(900 * k + 0.5)
                 end
             end
