@@ -4872,7 +4872,23 @@ class ScreenCoach {
     static RX := 0
     static RY := 0
 
-    static Active() => Recorder.On && Live.Fresh() && (SlotSync.Anywhere || SlotSync.SiegeActive())
+    ; Training only: the screen check is wrong in a match (you move, enemies appear, doors open) and the analysis can briefly
+    ; hitch the Lua. It never runs unless you switch TRAINING on (F12) - and it switches itself off after 20 minutes.
+    static Training := false
+    static TrainUntil := 0
+    static ToggleTraining() {
+        ScreenCoach.Training := !ScreenCoach.Training
+        ScreenCoach.TrainUntil := ScreenCoach.Training ? A_TickCount + 1200000 : 0
+        Toast.Show(ScreenCoach.Training ? "ok" : "info", ScreenCoach.Training ? "● TRAINING ON" : "TRAINING OFF"
+            , ScreenCoach.Training ? "Screen coach is measuring your sprays" : "No screenshots are taken"
+            , ScreenCoach.Training ? "Use it in the range only. Off again in 20 min" : "", "")
+        View.Changed()
+    }
+    static Active() {
+        if (ScreenCoach.Training && A_TickCount > ScreenCoach.TrainUntil)
+            ScreenCoach.Training := false
+        return ScreenCoach.Training && Recorder.On && Live.Fresh() && (SlotSync.Anywhere || SlotSync.SiegeActive())
+    }
 
     ; Area compared: left 60% x top 50% of the screen (the gun, ammo counter and compass are outside it).
     static Region() {
@@ -5093,6 +5109,10 @@ class ScreenCoach {
     ; F11 while holding the aim button: moves the mouse 300 counts down, then 300 right, and measures how many screen
     ; pixels the view moved each time. Do it with the sight you normally use (zoom changes the number).
     static CalibratePx() {
+        if !ScreenCoach.Training {
+            Toast.Show("warn", "CALIBRATE PX", "Switch TRAINING on first (F12)", "Range only: it moves your view", "")
+            return
+        }
         if !(SlotSync.Anywhere || SlotSync.SiegeActive()) {
             Toast.Show("warn", "CALIBRATE PX", "Siege must be the active window", "", "")
             return
@@ -5728,7 +5748,8 @@ Cfg.Load()
 Ui.Recalc()
 DbgListener.Init()
 Hk.RegisterAll()
-try Hotkey("F11", (*) => ScreenCoach.CalibratePx(), "On")        ; measures px per mouse count for the screen coach
+try Hotkey("F11", (*) => ScreenCoach.CalibratePx(), "On")
+try Hotkey("F12", (*) => ScreenCoach.ToggleTraining(), "On")                   ; screen coach only works while TRAINING is on        ; measures px per mouse count for the screen coach
 View.Start()
 SlotSync.Set("PRIMARY", false)                       ; baseline: lock key OFF = primary
 SetTimer(() => Live.Poll(), 15)                  ; receives packets (DBWIN handshake needs quick service)
