@@ -1138,6 +1138,9 @@ local RECOIL_PROFILES = {
     ["C8-SFW"]       = { operator = "Buck",   r = 16, x1 = -1, tm1 = 1100, x2 = 1, tm2 = 1500, y1 = 2,  tym1 = 1100, y2 = 1, tym2 = 1400, strength = 1.25 },
     ["T-5 SMG"]      = { operator = "Lesion", r = 6,  x1 = -1, tm1 = 500,  x2 = 1, tm2 = 800,  y1 = 1,  tym1 = 350,  y2 = 1, tym2 = 830 },
     ["COMMANDO 9"]   = { operator = "Mozzie", r = 6,  x1 = -1, tm1 = 150,  x2 = 1, tm2 = 250,  y1 = -1, tym1 = 40,   y2 = 1, tym2 = 550 },
+    -- SMG-12 (1270 rpm, V9 / H10): climbs ~25% harder than the generic estimate, then a left bias that grows
+    -- (x1 from 200 ms, x2 from 450 ms) with a heavier late climb. Phase times are Spear's rescaled to 1270 rpm.
+    ["SMG-12"]       = { r = 16, x1 = -1, tm1 = 200, x2 = -1, tm2 = 450, y1 = 3, tym1 = 250, y2 = 2, tym2 = 500, strength = 1.0, side = -0.2, late = 1.3 },
     -- tuned with the tune mode. Keys are WEAPON:BARREL:GRIP, so each loadout has its own profile.
     ["M4:SUPPRESSOR:HORIZONTAL"] = { r = 8, x1 = 0, tm1 = 0, x2 = 0, tm2 = 0, y1 = 1, tym1 = 500, y2 = 1, tym2 = 900, strength = 3.90, side = -0.5, late = 1.00 },
 }
@@ -1285,6 +1288,7 @@ local function BuildEstimatedProfiles()
         local id, rpm, kick, mode = w[1], w[2], w[3], w[4]
         if mode == "semi" then SEMI_AUTO[id] = rpm end          -- value = fire-rate cap (rpm)
         local plainFree, keyedFree = not RECOIL_PROFILES[id], not RECOIL_PROFILES[id .. ESTIMATE_LOADOUT]
+        keyedFree = keyedFree and plainFree
         if plainFree or keyedFree then
             -- Community tables show recoil per shot is fairly even across guns (pull is mostly
             -- fire rate), so pull each estimate part of the way toward one common value.
