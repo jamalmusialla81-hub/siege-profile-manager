@@ -1189,34 +1189,36 @@ local SEMI_AUTO = {}   -- weapon id -> fire-rate cap in rpm, for weapons where h
 --          measurements: SMGs low, 5.56 rifles mid, 7.62 / LMG high, DMRs and
 --          shotguns high per shot. Horizontal recoil is random per spray in
 --          Siege, so no sideways pull is estimated; the jitter covers it.
+--   5th field (optional) = sideways bias per tick (+ right, - left) for guns with a known lateral sweep.
+--   Rows are scaled off the Spear .308 (700 rpm, kick 165 = vertical 4): kick = 165 * V / 4.
 --   pull per 7 ms tick = kick * rpm / 60 * 0.007, rescaled at runtime to your
 --   dpi * sensitivity. THESE ARE ESTIMATES: fine-tune any gun with the tune
 --   mode (LSHIFT + LMB), or scale them all with CONFIG.recoil.estimateGain.
 --=====================================================================
 local WEAPON_RECOIL = {
     -- assault rifles / carbines
-    { "M4", 750, 145 },        { "L85A2", 670, 150 },     { "AR33", 749, 125 },
-    { "G36C", 780, 130 },      { "R4-C", 860, 135 },      { "556XI", 690, 140 },
-    { "F2", 980, 120 },        { "AK-12", 850, 155 },     { "AUG A2", 720, 125 },
-    { "552 COMMANDO", 690, 150 }, { "MK17 CQB", 585, 175 }, { "PARA-308", 650, 165 },
-    { "C7E", 800, 145 },       { "M762", 730, 175 },      { "XK23", 850, 135 },
-    { "SPEAR .308", 700, 165 }, { "AK-74M", 650, 155 },   { "ARX200", 700, 190 },
-    { "F90", 780, 130 },       { "SC3000K", 800, 140 },   { "416-C", 740, 130 },
-    { "V308", 700, 170 },      { "ALDA 5.56", 900, 120 }, { "K1A", 720, 100 },
-    { "PMR90A2", 750, 100 },   { "PCX-33", 745, 100 },    { "AUG A3", 700, 100 },
+    { "M4", 750, 206 },        { "L85A2", 670, 165 },     { "AR33", 749, 206 },
+    { "G36C", 780, 165 },      { "R4-C", 860, 248, nil, 0.1 },      { "556XI", 690, 165 },
+    { "F2", 980, 330 },        { "AK-12", 850, 289, nil, 0.15 },     { "AUG A2", 720, 165 },
+    { "552 COMMANDO", 690, 206 }, { "MK17 CQB", 585, 206 }, { "PARA-308", 650, 165 },
+    { "C7E", 800, 206 },       { "M762", 730, 248 },      { "XK23", 675, 165 },
+    { "SPEAR .308", 700, 165 }, { "AK-74M", 650, 165 },   { "ARX200", 700, 248 },
+    { "F90", 740, 165 },       { "SC3000K", 800, 206 },   { "416-C", 740, 248 },
+    { "V308", 700, 206 },      { "ALDA 5.56", 900, 248 }, { "K1A", 720, 206, nil, 0.1 },
+    { "PMR90A2", 750, 100 },   { "PCX-33", 745, 100 },    { "AUG A3", 700, 124 },
     -- LMGs
-    { "M249", 650, 135 },      { "M249 SAW", 650, 135 },  { "6P41", 680, 135 },
-    { "G8A1", 850, 135 },      { "T-95 LSW", 650, 145 },  { "LMG-E", 720, 140 },
+    { "M249", 650, 248 },      { "M249 SAW", 650, 248 },  { "6P41", 740, 289 },
+    { "G8A1", 850, 248 },      { "T-95 LSW", 650, 330, nil, -0.2 },  { "LMG-E", 650, 289 },
     { "DP27", 550, 165 },
     -- SMGs / machine pistols
-    { "PDW9", 800, 85 },       { "FMG-9", 800, 70 },      { "MP7", 900, 70 },
-    { "POF-9", 740, 80 },      { "UMP45", 600, 80 },      { "MP5", 800, 60 },
-    { "MP5K", 800, 62 },       { "P90", 970, 55 },        { "9X19VSN", 750, 65 },
-    { "MPX", 830, 65 },        { "M12", 550, 70 },        { "MP5SD", 800, 55 },
-    { "VECTOR .45 ACP", 1200, 55 }, { "SCORPION EVO 3 A1", 1080, 55 },
-    { "MX4 STORM", 950, 60 }, { "P10 RONI", 980, 75 },    { "UZK50GI", 700, 70 },
-    { "9MM C1", 575, 65 },     { "SPSMG9", 980, 65 },     { "SMG-12", 1270, 50 },
-    { "SMG-11", 1270, 45 },    { "BEARING 9", 1100, 55 },  { "C75 AUTO", 1000, 90 },
+    { "PDW9", 800, 165 },       { "FMG-9", 800, 124 },      { "MP7", 900, 165 },
+    { "POF-9", 740, 248 },      { "UMP45", 600, 82 },      { "MP5", 800, 124 },
+    { "MP5K", 800, 124 },       { "P90", 970, 206 },        { "9X19VSN", 750, 124 },
+    { "MPX", 830, 124 },        { "M12", 550, 82 },        { "MP5SD", 800, 124 },
+    { "VECTOR .45 ACP", 1200, 248 }, { "SCORPION EVO 3 A1", 1080, 289 },
+    { "MX4 STORM", 950, 165 }, { "P10 RONI", 980, 206 },    { "UZK50GI", 700, 206 },
+    { "9MM C1", 575, 82 },     { "SPSMG9", 980, 248 },     { "SMG-12", 1270, 371, nil, -0.35 },
+    { "SMG-11", 1270, 371 },    { "BEARING 9", 1100, 330 },  { "C75 AUTO", 1000, 248 },
     -- full-auto shotguns
     { "FO-12", 400, 250 },
     -- DMRs / snipers (semi; bolt-action counts as semi: one shot per click)
@@ -1254,7 +1256,7 @@ local WEAPON_RECOIL = {
 local function BuildEstimatedProfiles()
     local tickMs = CONFIG.recoil.tickMs
     for _, w in ipairs(WEAPON_RECOIL) do
-        local id, rpm, kick, mode = w[1], w[2], w[3], w[4]
+        local id, rpm, kick, mode, side = w[1], w[2], w[3], w[4], w[5]
         if mode == "semi" then SEMI_AUTO[id] = rpm end          -- value = fire-rate cap (rpm)
         if not RECOIL_PROFILES[id] then
             -- Community tables show recoil per shot is fairly even across guns (pull is mostly
@@ -1269,6 +1271,7 @@ local function BuildEstimatedProfiles()
                 y1 = math.max(1, math.floor(exact * 0.12 + 0.5)), tym1 = 450,
                 y2 = math.max(1, math.floor(exact * 0.10 + 0.5)), tym2 = 900,
                 strength = math.floor(exact / r * CONFIG.recoil.estimateGain * 100 + 0.5) / 100,
+                side = side or 0,
             }
         end
     end
