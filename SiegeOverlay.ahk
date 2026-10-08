@@ -34,11 +34,11 @@ class App {
 }
 
 class Clr {   ; colour tokens (RGB hex, no #)
-    static Bg := "090B10", Panel := "11141B", Panel2 := "1A1F29", Line := "252B38", Sel := "0F2B38"
-    static Text := "F5F7FA", Dim := "97A1B2", Mute := "596378"
-    static Accent := "22D3EE", Accent2 := "8B5CF6", Ink := "04141A"   ; brand gradient (cyan -> violet) + dark text on top of it
-    static GreenDim := "1F9E74"                                         ; the low point of the "live" pulse
-    static Green := "34E0A1", Amber := "FBBF24", Red := "FB7185", Blue := "60A5FA"   ; status colours
+    static Bg := "0C0E13", Panel := "13161D", Panel2 := "1A1E27", Line := "232834", Sel := "18212C"
+    static Text := "E9EDF3", Dim := "8D96A8", Mute := "596275"
+    static Accent := "4CC9E8", Accent2 := "4CC9E8", Ink := "06131A"   ; one accent colour (Accent2 = Accent: gradients render as flat lines)
+    static GreenDim := "2A9672"                                         ; the low point of the "live" pulse
+    static Green := "4ADE9C", Amber := "F2B84B", Red := "F07178", Blue := "6CA8F0"   ; status colours
 }
 
 Clamp(v, lo, hi) => Min(Max(v, lo), hi)
@@ -1723,12 +1723,12 @@ class Ui {
     static Pt(v) => Max(7, Round(v * Cfg.Num("ui.scale", 1.0)))
 
     ; Text with a solid background (so it never leaves repaint artefacts on a card).
-    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "F5F7FA", bg := "090B10", opts := "", face := "Segoe UI") {
+    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "F5F7FA", bg := "0C0E13", opts := "", face := "Segoe UI") {
         g.SetFont("s" Ui.Pt(size) " " style " c" color, face)
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x200 +0x4000 Background" bg " " opts, text)
     }
 
-    static Mono(g, x, y, w, h, text, size := 9, color := "F5F7FA", bg := "090B10") {
+    static Mono(g, x, y, w, h, text, size := 9, color := "F5F7FA", bg := "0C0E13") {
         g.SetFont("s" Ui.Pt(size) " Norm c" color, "Consolas")
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x4000 Background" bg, text)
     }
@@ -1875,7 +1875,7 @@ class Seg {
 
 ; Clickable checkbox drawn as text ("☑ label" / "☐ label").
 class Toggle {
-    __New(g, x, y, w, label, on, cb, bg := "090B10") {
+    __New(g, x, y, w, label, on, cb, bg := "0C0E13") {
         this.Label := label
         this.On := on ? 1 : 0
         this.Cb := cb
@@ -2267,9 +2267,7 @@ class Center {
 
     static Card(add, g, x, y, w, h, title) {
         add(Ui.Rect(g, x, y, w, h, Clr.Panel))
-        add(Ui.Rect(g, x, y, w, 2, Clr.Line))                    ; hard top edge
-        add(Ui.Rect(g, x + 14, y + 12, 3, 12, Clr.Accent))        ; accent tick
-        add(Ui.Txt(g, x + 24, y + 8, w - 38, 20, title, 8, "Bold", Clr.Dim, Clr.Panel))
+        add(Ui.Txt(g, x + 14, y + 8, w - 28, 20, title, 8, "Bold", Clr.Mute, Clr.Panel))
     }
 
     static Build() {
@@ -2290,26 +2288,24 @@ class Center {
 
         ; --- header ---------------------------------------------------------------
         Ui.Rect(g, 0, 0, Center.W, 60, Clr.Panel)
-        Ui.Rect(g, 16, 8, 52, 44, Ui.Mix(Clr.Panel, Clr.Accent, 0.35))        ; glow
-        Ui.Rect(g, 18, 10, 48, 40, Ui.Mix(Clr.Panel, Clr.Accent, 0.6))
-        Ui.Txt(g, 20, 12, 44, 36, "SPM", 11, "Bold", Clr.Ink, Clr.Accent, "Center", "Segoe UI Black")
-        Ui.Txt(g, 80, 9, 380, 26, "SIEGE PROFILE MANAGER", 14, "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Black")
-        Ui.Txt(g, 80, 35, 380, 16, "CONTROL CENTRE   ·   V" App.Version, 8, "Bold", Clr.Accent, Clr.Panel)
+        Ui.Txt(g, 20, 10, 380, 24, "Siege Profile Manager", 13, "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Semibold")
+        Ui.Txt(g, 20, 34, 380, 16, "Control centre  ·  v" App.Version, 8, "Norm", Clr.Mute, Clr.Panel)
         Center.Ctl["pill"] := Ui.Txt(g, 470, 18, 300, 26, "", 10, "Bold", Clr.Green, Clr.Panel, "Right")
-        Ui.Btn(g, 790, 14, 170, 32, "◂  COMPACT HUD", () => View.SetMode("hud"))
-        Ui.Gradient(g, 0, 59, Center.W, 3, Clr.Accent, Clr.Accent2, 64)
+        Ui.Btn(g, 790, 14, 170, 32, "Compact HUD", () => View.SetMode("hud"))
+        Ui.Rect(g, 0, 60, Center.W, 1, Clr.Line)
         ; --- sidebar --------------------------------------------------------------
         Ui.Rect(g, 0, 61, 176, Center.H - 61, Clr.Panel)
-        y := 78
+        Ui.Rect(g, 175, 61, 1, Center.H - 61, Clr.Line)
+        y := 76
         for name in Center.Names {
             Center.NavBar[name] := Ui.Rect(g, 0, y, 4, 38, Clr.Panel)
-            t := Ui.Txt(g, 4, y, 172, 38, "   " Center.Glyph.Get(name, "•") "   " name, 10, "Bold", Clr.Dim, Clr.Panel, "+0x100")
+            t := Ui.Txt(g, 4, y, 171, 38, "     " StrTitle(name), 10, "Norm", Clr.Dim, Clr.Panel, "+0x100")
             t.OnEvent("Click", Center.OpenPage.Bind(Center, name))
             Center.Nav[name] := t
             y += 42
         }
-        Ui.Txt(g, 14, Center.H - 96, 150, 16, "LUA CONFIG", 8, "Bold", Clr.Mute, Clr.Panel)
-        Center.Ctl["sync"] := Ui.Txt(g, 14, Center.H - 78, 152, 62, "", 8, "Norm", Clr.Dim, Clr.Panel, "")
+        Ui.Txt(g, 20, Center.H - 96, 150, 16, "Lua config", 8, "Bold", Clr.Mute, Clr.Panel)
+        Center.Ctl["sync"] := Ui.Txt(g, 20, Center.H - 78, 148, 62, "", 8, "Norm", Clr.Dim, Clr.Panel, "")
         Center.Ctl["sync"].Opt("-0x200 -0x4000")
 
         Center.BuildHome(g)
@@ -2413,9 +2409,6 @@ class Center {
         c := Center.Ctl
         ; ---- hero: the operator and loadout you are on ----
         add(Ui.Rect(g, 196, 76, 764, 116, Clr.Panel))
-        for gc in Ui.Gradient(g, 196, 76, 764, 3, Clr.Accent, Clr.Accent2, 48)
-            add(gc)
-        add(Ui.Rect(g, 196, 79, 4, 113, Clr.Accent))
         c["h_side"] := add(Ui.Txt(g, 218, 92, 400, 18, "", 9, "Bold", Clr.Accent, Clr.Panel))
         c["h_op"] := add(Ui.Txt(g, 216, 110, 420, 44, "", 28, "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Black"))
         c["h_lo"] := add(Ui.Txt(g, 218, 158, 420, 22, "", 9, "Norm", Clr.Dim, Clr.Panel))
@@ -2426,7 +2419,7 @@ class Center {
         c["h_s2"] := add(Ui.Txt(g, 668, 166, 284, 20, "", 8, "Norm", Clr.Dim, Clr.Panel))
         ; ---- live module chips (states straight from the Lua) ----
         for i, ch in Center.ChipDefs
-            Center.Chips.Push(add(Ui.Txt(g, 196 + (i - 1) * 128, 204, 122, 28, "", 8, "Bold", Clr.Dim, Clr.Panel2, "Center")))
+            Center.Chips.Push(add(Ui.Txt(g, 196 + (i - 1) * 128, 204, 122, 28, "", 8, "Bold", Clr.Dim, Clr.Bg, "")))
         ; ---- link + calibration ----
         Center.Card(add, g, 196, 246, 374, 106, "G HUB LINK")
         c["h_conn"] := add(Ui.Txt(g, 210, 272, 346, 26, "", 13, "Bold", Clr.Green, Clr.Panel))
@@ -2462,19 +2455,19 @@ class Center {
             bb := Live.Burst
             if (ms = "ENABLED" && bb["active"] && ((i = 1 && bb["recoil"]) || (i = 2 && bb["rapid"])))
                 ms := "ACTIVE"
-            SetText(Center.Chips[i], "● " ch[1])
+            SetText(Center.Chips[i], "● " StrTitle(ch[1]))
             Ui.Paint(Center.Chips[i], ms = "ENABLED" ? Clr.Green : ms = "ACTIVE" ? Clr.Accent : ms = "UNAVAILABLE" ? Clr.Amber : ms = "DISABLED" ? Clr.Red : Clr.Mute)
         }
         ; hero
         fav := has && IndexOf(Cfg.Get("favorites"), Live.OpName()) ? "★  " : ""
-        SetText(c["h_side"], has ? Db.SideLabel(Live.Side()) "  SIDE" : "WAITING FOR G HUB")
+        SetText(c["h_side"], has ? StrTitle(Db.SideLabel(Live.Side())) " side" : "Waiting for G HUB")
         SetText(c["h_op"], has ? fav StrUpper(Live.OpName()) : "—")
-        SetText(c["h_lo"], has ? "Loadout  " Live.Get("loadout", "-") "     ·     System " (Live.Get("enabled") = "1" ? "ON" : "OFF") : "Press RALT + left click once")
+        SetText(c["h_lo"], has ? "Loadout " Live.Get("loadout", "-") "   ·   System " (Live.Get("enabled") = "1" ? "ON" : "OFF") : "Press RALT + left click once")
         active := Live.Slot()
         for kind, ids in Map("primary", ["h_p1", "h_p2"], "secondary", ["h_s1", "h_s2"]) {
             w := Live.Get(kind, "-")
             isA := (active = kind)
-            SetText(c[ids[1]], has ? (isA ? "►  " : "    ") StrUpper(kind) "   " w : "")
+            SetText(c[ids[1]], has ? (isA ? "►  " : "    ") StrTitle(kind) "   " w : "")
             Ui.Paint(c[ids[1]], isA ? Clr.Text : Clr.Dim)
             if (has && w != "NONE" && w != "-")
                 SetText(c[ids[2]], "      " Center.A(Live.Att(kind, "scope")) "  ·  " Center.A(Live.Att(kind, "barrel")) "  ·  " Center.A(Live.Att(kind, "grip")))
