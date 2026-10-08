@@ -2859,7 +2859,7 @@ local function ActiveRecoilProfile()
     if k ~= RecoilKey(slot) and cfg.attMult then
         mult = ((cfg.attMult.grip or {})[slot.grip] or 1) * ((cfg.attMult.barrel or {})[slot.barrel] or 1)
     end
-    return p, mult
+    return p, mult, (k == RecoilKey(slot))        -- third value: tuned for this exact loadout (vertGain must not apply)
 end
 
 -- Applies a change of the slot-sync lock key (set by SiegeOverlay.ahk on 1 / 2).
@@ -2906,7 +2906,7 @@ end
 --   * fire        -> on semi-auto weapons, spams clicks with random timing (works hip-fire too)
 local function RunRecoil()
     local cfg, rf = CONFIG.recoil, CONFIG.rapidFire
-    local p, attMul = ActiveRecoilProfile()
+    local p, attMul, tuned = ActiveRecoilProfile()
     attMul = attMul or 1
     local rapid = RapidWeaponActive()
     if not p and not rapid then
@@ -2921,7 +2921,8 @@ local function RunRecoil()
     local jm = jc.enabled and (jc.amount or 1) or 0
     local ref = cfg.reference
     local sx = cfg.gain * (ref.dpi * ref.horizontal) / (CONFIG.dpi * CONFIG.sensitivity.horizontal)
-    local sy = cfg.gain * (cfg.vertGain or 1) * (ref.dpi * ref.vertical) / (CONFIG.dpi * CONFIG.sensitivity.vertical)
+    -- vertGain calibrates the built-in / estimated profiles; a profile you tuned for this exact loadout already includes its own strength
+    local sy = cfg.gain * (tuned and 1 or (cfg.vertGain or 1)) * (ref.dpi * ref.vertical) / (CONFIG.dpi * CONFIG.sensitivity.vertical)
     Debug("RECOIL", "%s scale %.3f/%.3f rapid=%s", tostring(ActiveWeaponSlot().weapon), sx, sy, tostring(rapid))
     while IsMouseButtonPressed(cfg.aimButton) or IsMouseButtonPressed(cfg.fireButton) do
         if IsMouseButtonPressed(cfg.fireButton) then
