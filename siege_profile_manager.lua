@@ -2424,6 +2424,9 @@ local function ExportState()
             att = ((CONFIG.recoil.attMult.grip or {})[slot.grip] or 1) * ((CONFIG.recoil.attMult.barrel or {})[slot.barrel] or 1)
         end
         local stg, late = (pf.strength or 1) * att, pf.late or 1
+        -- the pull the macro really applies: vertGain covers every profile except one tuned for this exact loadout.
+        -- The coach learns from these numbers, and its learned profiles are exact (no vertGain), so they must include it.
+        if pk ~= RecoilKey(slot) then stg = stg * (CONFIG.recoil.vertGain or 1) end
         pullA = string.format("%.3f", pf.r * stg)
         pullB = string.format("%.3f", (pf.r + pf.y1 * late) * stg)
         pullC = string.format("%.3f", (pf.r + pf.y1 * late + pf.y2 * late) * stg)
