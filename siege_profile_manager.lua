@@ -165,6 +165,7 @@ local CONFIG = {
         requireBarrel = nil,             -- old Vora profiles only applied with this barrel; nil = any barrel
         secondary     = true,   -- recoil also works on the secondary weapon (e.g. SMG-12); false = primary only
         gain          = 1.0,             -- overall pull strength multiplier (tune mode edits this)
+        vertGain      = 1.2,             -- vertical-only multiplier on EVERY profile (Spear, Vora, table weapons); raise it if the pull is too weak
         estimateGain  = 1.0,             -- multiplies ONLY the estimated profiles (section 5c); raise it if they under-pull
         flatten       = 0.4,             -- 0..1: pull estimates toward one common per-shot kick (0 = keep class guesses)
         commonKick    = 145,             -- that common per-shot kick (Type-89 / C8-SFW level)
@@ -2916,7 +2917,7 @@ local function RunRecoil()
     local jm = jc.enabled and (jc.amount or 1) or 0
     local ref = cfg.reference
     local sx = cfg.gain * (ref.dpi * ref.horizontal) / (CONFIG.dpi * CONFIG.sensitivity.horizontal)
-    local sy = cfg.gain * (ref.dpi * ref.vertical)   / (CONFIG.dpi * CONFIG.sensitivity.vertical)
+    local sy = cfg.gain * (cfg.vertGain or 1) * (ref.dpi * ref.vertical) / (CONFIG.dpi * CONFIG.sensitivity.vertical)
     Debug("RECOIL", "%s scale %.3f/%.3f rapid=%s", tostring(ActiveWeaponSlot().weapon), sx, sy, tostring(rapid))
     while IsMouseButtonPressed(cfg.aimButton) or IsMouseButtonPressed(cfg.fireButton) do
         if IsMouseButtonPressed(cfg.fireButton) then
