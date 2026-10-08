@@ -185,10 +185,10 @@ local CONFIG = {
             spray   = 0.06,   -- whole spray pulls +/-6% harder or softer, re-rolled every burst
             tick    = 0.12,   -- fast per-tick noise on the vertical pull (+/-12%)
             sway    = 0.035,  -- slow wander of the vertical pull (like drifting over/under-control)
-            side    = 0.55,   -- sideways noise in counts per tick (at the reference sens)
+            side    = 0.25,   -- sideways noise in counts per tick (at the reference sens)
             hiccup  = 0.02,   -- chance per tick of a small extra kick / slip
-            lean    = 0.35,   -- each burst leans a random amount left or right (counts per tick)
-            episode = 0.025,  -- chance per tick of a short "wobble episode" (a brief over/under-pull + push)
+            lean    = 0.08,   -- each burst leans a random amount left or right (counts per tick)
+            episode = 0.01,   -- chance per tick of a short "wobble episode" (a brief over/under-pull + push)
             loose   = 0.5,    -- 0..1: how much the noise strength itself changes from burst to burst
         },
     },
