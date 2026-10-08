@@ -1611,6 +1611,7 @@ class Sync {
             case "burst_start":
                 Coach.OnLuaStart()
                 ScreenCoach.OnStart()
+                SightTrace.OnStart()
                 if IsObject(Recorder.Cur) {
                     Recorder.Cur["macro"] := 1               ; the macro is moving the mouse during this burst
                     Recorder.Cur["recoil"] := e.Get("recoil", "0") = "1" ? 1 : 0
@@ -1624,6 +1625,7 @@ class Sync {
                 b["active"] := 0, b["lastT"] := A_TickCount
                 b["last"] := Round(e.Get("ms", 0) / 1000, 1) " s, " e.Get("ticks", 0) " ticks, " e.Get("clicks", 0) " clicks"
                 Coach.OnLuaEnd(e)
+                SightTrace.OnEnd(e)
                 ScreenCoach.OnEnd(e)
         }
     }
@@ -5153,6 +5155,90 @@ class ScreenCoach {
             Toast.Show("warn", "CALIBRATE PX", "Failed: " err.Message, "", "")
         } finally
             ScreenCoach.Busy := false
+    }
+}
+
+; ------------------------------------------------------------------------------
+; 18c. SIGHT TRACE  (follows the pink sight on screen during a spray; light enough to leave on in a match)
+;     Every 50 ms while a burst is running it scans the middle of the screen for pink pixels and records
+;     where their centre is. At the end it reports how far that centre moved. It only reports: nothing is
+;     learned from it yet (we first need to see what the number looks like for a good and a bad spray).
+;     Runs while the coach (F6) is on.
+; ------------------------------------------------------------------------------
+class SightTrace {
+    static Samples := []
+    static Fn := ""
+    static T0 := 0
+    static Busy := false
+
+    static Region() {
+        w := A_ScreenWidth, h := A_ScreenHeight
+        return [Round(w * 0.25), Round(h * 0.25), Round(w * 0.50), Round(h * 0.50)]
+    }
+
+    ; Pink = strong red and blue, clearly more red than green (works for hot pink and soft pink).
+    static IsPink(r, g, b) => (r > 150 && b > 100 && r - g > 45 && b - g > 5)
+
+    static Sample() {
+        if SightTrace.Busy
+            return
+        SightTrace.Busy := true
+        try {
+            rg := SightTrace.Region()
+            buf := ScreenCoach.Grab(rg[1], rg[2], rg[3], rg[4])
+            w := rg[3], h := rg[4]
+            n := 0, sx := 0, sy := 0
+            y := 0
+            while (y < h) {
+                row := y * w * 4
+                x := 0
+                while (x < w) {
+                    o := row + x * 4
+                    if SightTrace.IsPink(NumGet(buf, o + 2, "UChar"), NumGet(buf, o + 1, "UChar"), NumGet(buf, o, "UChar"))
+                        n += 1, sx += x, sy += y
+                    x += 4
+                }
+                y += 4
+            }
+            if (n >= 20)
+                SightTrace.Samples.Push([A_TickCount - SightTrace.T0, sx / n + rg[1], sy / n + rg[2], n])
+        } finally
+            SightTrace.Busy := false
+    }
+
+    static OnStart() {
+        SightTrace.Samples := []
+        if (!Recorder.On || !Live.Fresh() || !(SlotSync.Anywhere || SlotSync.SiegeActive()))
+            return
+        SightTrace.T0 := A_TickCount
+        if !IsObject(SightTrace.Fn)
+            SightTrace.Fn := ObjBindMethod(SightTrace, "Sample")
+        SetTimer(SightTrace.Fn, 50)
+    }
+
+    static OnEnd(e) {
+        if IsObject(SightTrace.Fn)
+            SetTimer(SightTrace.Fn, 0)
+        sm := SightTrace.Samples
+        if (sm.Length < 6) {
+            if (Recorder.On && Live.Fresh())
+                Diag.Log("sight trace: no pink sight found (" sm.Length " samples)")
+            return
+        }
+        k := Min(3, sm.Length // 2)
+        x0 := 0, y0 := 0, x1 := 0, y1 := 0, ymax := -1e9, ymin := 1e9
+        loop k {
+            x0 += sm[A_Index][2] / k, y0 += sm[A_Index][3] / k
+            x1 += sm[sm.Length - A_Index + 1][2] / k, y1 += sm[sm.Length - A_Index + 1][3] / k
+        }
+        for q in sm
+            ymax := Max(ymax, q[3]), ymin := Min(ymin, q[3])
+        dy := Round(y1 - y0), dx := Round(x1 - x0)
+        msg := Format("sight trace: pink sight moved {} px {} and {} px {} over the spray  (range {} px, {} samples)"
+            , Abs(dy), dy < 0 ? "UP" : "DOWN", Abs(dx), dx < 0 ? "LEFT" : "RIGHT", Round(ymax - ymin), sm.Length)
+        Diag.Log(msg)
+        Coach.Msg := msg
+        View.Changed()
     }
 }
 
