@@ -1135,7 +1135,7 @@ local PROFILE_LIST = {
 --=====================================================================
 local RECOIL_PROFILES = {
     ["TYPE-89"]      = { operator = "Hibana", r = 14, x1 = -1, tm1 = 100,  x2 = 0, tm2 = 0,    y1 = 1,  tym1 = 500,  y2 = 1, tym2 = 900 },
-    ["C8-SFW"]       = { operator = "Buck",   r = 16, x1 = -1, tm1 = 1100, x2 = 1, tm2 = 1500, y1 = 2,  tym1 = 1100, y2 = 1, tym2 = 1400 },
+    ["C8-SFW"]       = { operator = "Buck",   r = 16, x1 = -1, tm1 = 1100, x2 = 1, tm2 = 1500, y1 = 2,  tym1 = 1100, y2 = 1, tym2 = 1400, strength = 1.25 },
     ["T-5 SMG"]      = { operator = "Lesion", r = 6,  x1 = -1, tm1 = 500,  x2 = 1, tm2 = 800,  y1 = 1,  tym1 = 350,  y2 = 1, tym2 = 830 },
     ["COMMANDO 9"]   = { operator = "Mozzie", r = 6,  x1 = -1, tm1 = 150,  x2 = 1, tm2 = 250,  y1 = -1, tym1 = 40,   y2 = 1, tym2 = 550 },
     -- tuned with the tune mode. Keys are WEAPON:BARREL:GRIP, so each loadout has its own profile.
@@ -1189,35 +1189,35 @@ local SEMI_AUTO = {}   -- weapon id -> fire-rate cap in rpm, for weapons where h
 --          measurements: SMGs low, 5.56 rifles mid, 7.62 / LMG high, DMRs and
 --          shotguns high per shot. Horizontal recoil is random per spray in
 --          Siege, so no sideways pull is estimated; the jitter covers it.
---   Rows are scaled off the Spear .308 (700 rpm, kick 165 = vertical 4): kick = 165 * V / 4.
+--   rpm comes from the spray table; kick stays the per-shot class value (pull = kick * rpm, so V must not scale kick again).
 --   pull per 7 ms tick = kick * rpm / 60 * 0.007, rescaled at runtime to your
 --   dpi * sensitivity. THESE ARE ESTIMATES: fine-tune any gun with the tune
 --   mode (LSHIFT + LMB), or scale them all with CONFIG.recoil.estimateGain.
 --=====================================================================
 local WEAPON_RECOIL = {
     -- assault rifles / carbines
-    { "M4", 750, 206 },        { "L85A2", 670, 165 },     { "AR33", 749, 206 },
-    { "G36C", 780, 165 },      { "R4-C", 860, 248 },      { "556XI", 690, 165 },
-    { "F2", 980, 330 },        { "AK-12", 850, 289 },     { "AUG A2", 720, 165 },
-    { "552 COMMANDO", 690, 206 }, { "MK17 CQB", 585, 206 }, { "PARA-308", 650, 165 },
-    { "C7E", 800, 206 },       { "M762", 730, 248 },      { "XK23", 675, 165 },
-    { "SPEAR .308", 700, 165 }, { "AK-74M", 650, 165 },   { "ARX200", 700, 248 },
-    { "F90", 740, 165 },       { "SC3000K", 800, 206 },   { "416-C", 740, 248 },
-    { "V308", 700, 206 },      { "ALDA 5.56", 900, 248 }, { "K1A", 720, 206 },
-    { "PMR90A2", 750, 100 },   { "PCX-33", 745, 100 },    { "AUG A3", 700, 124 },
+    { "M4", 750, 145 },        { "L85A2", 670, 150 },     { "AR33", 749, 125 },
+    { "G36C", 780, 130 },      { "R4-C", 860, 135 },      { "556XI", 690, 140 },
+    { "F2", 980, 120 },        { "AK-12", 850, 155 },     { "AUG A2", 720, 125 },
+    { "552 COMMANDO", 690, 150 }, { "MK17 CQB", 585, 175 }, { "PARA-308", 650, 165 },
+    { "C7E", 800, 145 },       { "M762", 730, 175 },      { "XK23", 675, 135 },
+    { "SPEAR .308", 700, 165 }, { "AK-74M", 650, 155 },   { "ARX200", 700, 190 },
+    { "F90", 740, 130 },       { "SC3000K", 800, 140 },   { "416-C", 740, 130 },
+    { "V308", 700, 170 },      { "ALDA 5.56", 900, 120 }, { "K1A", 720, 100 },
+    { "PMR90A2", 750, 100 },   { "PCX-33", 745, 100 },    { "AUG A3", 700, 100 },
     -- LMGs
-    { "M249", 650, 248 },      { "M249 SAW", 650, 248 },  { "6P41", 740, 289 },
-    { "G8A1", 850, 248 },      { "T-95 LSW", 650, 330 },  { "LMG-E", 650, 289 },
+    { "M249", 650, 135 },      { "M249 SAW", 650, 135 },  { "6P41", 740, 135 },
+    { "G8A1", 850, 135 },      { "T-95 LSW", 650, 145 },  { "LMG-E", 650, 140 },
     { "DP27", 550, 165 },
     -- SMGs / machine pistols
-    { "PDW9", 800, 165 },       { "FMG-9", 800, 124 },      { "MP7", 900, 165 },
-    { "POF-9", 740, 248 },      { "UMP45", 600, 82 },      { "MP5", 800, 124 },
-    { "MP5K", 800, 124 },       { "P90", 970, 206 },        { "9X19VSN", 750, 124 },
-    { "MPX", 830, 124 },        { "M12", 550, 82 },        { "MP5SD", 800, 124 },
-    { "VECTOR .45 ACP", 1200, 248 }, { "SCORPION EVO 3 A1", 1080, 289 },
-    { "MX4 STORM", 950, 165 }, { "P10 RONI", 980, 206 },    { "UZK50GI", 700, 206 },
-    { "9MM C1", 575, 82 },     { "SPSMG9", 980, 248 },     { "SMG-12", 1270, 371 },
-    { "SMG-11", 1270, 371 },    { "BEARING 9", 1100, 330 },  { "C75 AUTO", 1000, 248 },
+    { "PDW9", 800, 85 },       { "FMG-9", 800, 70 },      { "MP7", 900, 70 },
+    { "POF-9", 740, 80 },      { "UMP45", 600, 80 },      { "MP5", 800, 60 },
+    { "MP5K", 800, 62 },       { "P90", 970, 55 },        { "9X19VSN", 750, 65 },
+    { "MPX", 830, 65 },        { "M12", 550, 70 },        { "MP5SD", 800, 55 },
+    { "VECTOR .45 ACP", 1200, 55 }, { "SCORPION EVO 3 A1", 1080, 55 },
+    { "MX4 STORM", 950, 60 }, { "P10 RONI", 980, 75 },    { "UZK50GI", 700, 70 },
+    { "9MM C1", 575, 65 },     { "SPSMG9", 980, 65 },     { "SMG-12", 1270, 50 },
+    { "SMG-11", 1270, 45 },    { "BEARING 9", 1100, 55 },  { "C75 AUTO", 1000, 90 },
     -- full-auto shotguns
     { "FO-12", 400, 250 },
     -- DMRs / snipers (semi; bolt-action counts as semi: one shot per click)
@@ -1253,7 +1253,7 @@ local WEAPON_RECOIL = {
 }
 
 
--- Spray notes from the community spray table, for every weapon that has one.
+-- Spray notes (sideways + late climb only; vertical pull is kick * rpm) from the community spray table, for every weapon that has one.
 --   { H, mid, late, lateMul }   H = horizontal rating (Spear .308 = 3, the base)
 --   mid / late = sideways direction in the middle / late part of the spray (+ right, - left, 0 = unknown/random)
 --   lateMul = how much harder the late spray climbs (0.7 = tight/modest, 1 = moderate, 1.3 = wider/less stable)
