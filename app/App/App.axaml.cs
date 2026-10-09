@@ -84,6 +84,10 @@ public partial class App : Application
             _main.Show();
             _main.ShowPage(startPage);
 
+            var showWait = Program.ShowSignal;
+            if (showWait != null)
+                new Thread(() => { while (showWait.WaitOne()) Dispatcher.UIThread.Post(() => { _main.Show(); _main.WindowState = Avalonia.Controls.WindowState.Normal; _main.Activate(); }); }) { IsBackground = true }.Start();
+
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             timer.Tick += (_, _) => { _main.Refresh(); _hud.Refresh(); };
             timer.Start();
