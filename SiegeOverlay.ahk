@@ -4615,6 +4615,7 @@ class Coach {
     }
 
     static Skip(msg) {
+        ScreenCoach.Last := "skipped: " msg
         Coach.Seen++                    ; a skipped burst is still a burst seen (scored = seen - skipped)
         Coach.Skipped++
         Coach.Msg := "skipped: " msg
@@ -4911,11 +4912,23 @@ class ScreenCoach {
             , ScreenCoach.Training ? "Use it in the range only. Off again in 20 min" : "", "")
         View.Changed()
     }
-    static Active() {
+    static Last := "no spray measured yet"
+    ; Why the screen coach is not measuring right now ("" = it is).
+    static Why() {
         if (ScreenCoach.Training && A_TickCount > ScreenCoach.TrainUntil)
             ScreenCoach.Training := false
-        return ScreenCoach.Training && Recorder.On && Live.Fresh() && (SlotSync.Anywhere || SlotSync.SiegeActive())
+        if !Recorder.On
+            return "the coach is OFF (press F6)"
+        if !ScreenCoach.Training
+            return "TRAINING is OFF (press F12 in the range)"
+        if !Live.Fresh()
+            return "no live data from G HUB"
+        if !(SlotSync.Anywhere || SlotSync.SiegeActive())
+            return "Siege is not the active window"
+        return ""
     }
+    static Active() => ScreenCoach.Why() = ""
+
 
     ; Area compared: left 60% x top 50% of the screen (the gun, ammo counter and compass are outside it).
     static Region() {
@@ -5067,7 +5080,16 @@ class ScreenCoach {
         ScreenCoach.Frames := []
         if (IsObject(ScreenCoach.TickFn))
             SetTimer(ScreenCoach.TickFn, 0)
-        if (ScreenCoach.Busy || !ScreenCoach.Active())
+        why := ScreenCoach.Why()
+        if (why != "") {
+            ScreenCoach.Last := "idle: " why
+            if Recorder.On {
+                Coach.Msg := "screen coach idle: " why
+                View.Changed()
+            }
+            return
+        }
+        if ScreenCoach.Busy
             return
         ScreenCoach.Snap()
         if !IsObject(ScreenCoach.TickFn)
@@ -5176,6 +5198,7 @@ class ScreenCoach {
             , "pa", pa, "pb", pb, "pc", pc, "nA", 1, "nB", 1, "nC", 1, "dur", ms, "py", py, "t", A_Now)
         Coach.Seen++
         Coach.Record(key, pa, pb, pc, pxs, t1, t2, res[1], res[2], res[3], mX, acc)
+        ScreenCoach.Last := "measured: EARLY " Coach.Say(res[1], pa) ", MID " Coach.Say(res[2], pb) ", LATE " Coach.Say(res[3], pc) " (" used " clear intervals of " (n - 1) ")"
         Coach.Msg := "screen coach: EARLY " Coach.Say(res[1], pa) "  ·  MID " Coach.Say(res[2], pb) "  ·  LATE " Coach.Say(res[3], pc)
             . "  ·  sideways " (Abs(mX) < 0.08 ? "ok" : "drifts " (mX < 0 ? "RIGHT" : "LEFT"))
             . (Cfg.Get("coach.pxy", "") = "" ? "   (press F11 holding ADS to calibrate px per count)" : "")
@@ -5391,6 +5414,7 @@ class Diagnostics {
         if (hint != "")
             t .= "  ⚠ " hint "`n"
         t .= Format("{:-22s}{:-18s}{}", "  RECOIL COACH", Recorder.On ? "▶ ACTIVE" : "○ DISABLED", "scored " (Coach.Seen - Coach.Skipped) ", skipped " Coach.Skipped ", mouse test: " (Coach.Mode() != "" ? Coach.Mode() : "not done") "  (" Coach.Msg ")") "`n"
+        t .= Format("{:-22s}{:-18s}{}", "  SCREEN COACH", ScreenCoach.Training ? "▶ TRAINING" : "○ TRAINING OFF", ScreenCoach.Last " | px/count " Cfg.Get("coach.pxy", "not calibrated (F11)")) "`n"
         t .= Diagnostics.Mod("DEBUG LOG", "m_debug")
         t .= Format("{:-22s}{:-18s}{}", "LOADOUT MANAGER", "✓ ENABLED", "loadout " g("loadout", "-") " (" g("loadout_n", "0") " saved), " g("fav_n", "?") " favourites") "`n"
         lk := Live.Status
