@@ -139,19 +139,21 @@
           <Border Classes="card">
             <StackPanel Spacing="10">
               <TextBlock Text="GAME" Classes="h" />
-              <Grid ColumnDefinitions="170,160" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+              <Grid ColumnDefinitions="170,160" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                 <Grid.Styles><Style Selector="Grid > Control"><Setter Property="Margin" Value="0,0,0,8" /></Style></Grid.Styles>
                 <TextBlock Text="Mouse DPI" VerticalAlignment="Center" /><NumericUpDown Name="DpiBox" Grid.Column="1" Minimum="50" Maximum="32000" Increment="50" FormatString="0" />
                 <TextBlock Grid.Row="1" Text="Sensitivity horizontal" VerticalAlignment="Center" /><NumericUpDown Name="SensHBox" Grid.Row="1" Grid.Column="1" Minimum="0.1" Maximum="100" Increment="0.5" FormatString="0.0#" />
                 <TextBlock Grid.Row="2" Text="Sensitivity vertical" VerticalAlignment="Center" /><NumericUpDown Name="SensVBox" Grid.Row="2" Grid.Column="1" Minimum="0.1" Maximum="100" Increment="0.5" FormatString="0.0#" />
                 <TextBlock Grid.Row="3" Text="Field of view" VerticalAlignment="Center" /><NumericUpDown Name="FovBox" Grid.Row="3" Grid.Column="1" Minimum="40" Maximum="140" Increment="1" FormatString="0" />
                 <TextBlock Grid.Row="4" Text="ADS sensitivity" VerticalAlignment="Center" /><NumericUpDown Name="AdsBox" Grid.Row="4" Grid.Column="1" Minimum="1" Maximum="200" Increment="1" FormatString="0" />
+                <TextBlock Grid.Row="6" Text="Pull strength" VerticalAlignment="Center" /><NumericUpDown Name="PullBox" Grid.Row="6" Grid.Column="1" Minimum="0.3" Maximum="3" Increment="0.05" FormatString="0.00" />
                 <TextBlock Grid.Row="5" Text="Resolution (W x H)" VerticalAlignment="Center" />
                 <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="6">
                   <NumericUpDown Name="ResWBox" Width="84" Minimum="640" Maximum="16384" Increment="1" FormatString="0" ShowButtonSpinner="False" />
                   <NumericUpDown Name="ResHBox" Width="84" Minimum="480" Maximum="16384" Increment="1" FormatString="0" ShowButtonSpinner="False" />
                 </StackPanel>
               </Grid>
+              <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap" Text="Pull strength scales the recoil pull of every gun that has no learned profile. Lower it if most guns pull the view down too far, raise it if they climb. Guns the coach has learned are not affected. Paste the script into G HUB after changing it." />
             </StackPanel>
           </Border>
           <Border Classes="card">

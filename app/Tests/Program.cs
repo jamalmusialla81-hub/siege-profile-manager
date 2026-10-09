@@ -36,6 +36,7 @@ store.Config.Learned["SPEAR .308:SUPPRESSOR:HORIZONTAL"] = new LearnedProfile { 
 store.Config.Favorites.Add("Mute");
 var block = LuaBlock.Build(store.Config, "TESTREV");
 Check(block.Contains("[\"SPEAR .308:SUPPRESSOR:HORIZONTAL\"] = { r = 23.16600, y1 = 3.56400"), "learned profile exported with the Lua's number format");
+Check(block.Contains("vertGain = 1.40000"), "pull strength exported as vertGain");
 Check(block.Contains("operator = \"Lesion\"") && block.Contains("[\"Mute\"] = { primary = { weapon = \"M590A1\""), "operator + seeded loadout exported");
 
 if (args.Length > 0 && File.Exists(args[0]))

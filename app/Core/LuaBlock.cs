@@ -53,6 +53,7 @@ public static class LuaBlock
         t.Append($"    sens = {{ h = {N(g.SensH)}, v = {N(g.SensV)} }},\n");
         t.Append($"    resolution = {{ w = {N(g.ResW)}, h = {N(g.ResH)} }},\n");
         t.Append($"    aspect = {Q(Aspect(g.ResW, g.ResH))},\n");
+        t.Append($"    vertGain = {N(Math.Round(Math.Clamp(g.PullGain, 0.3, 5), 2))},\n");
         t.Append("    preferred = {\n");
         t.Append($"        scope = {(c.Prefs.Scope == "AUTO" || c.Prefs.Scope == "" ? "{}" : List(new[] { c.Prefs.Scope }))},\n");
         t.Append($"        barrel = {List(Chain(c.Prefs.Barrel, BarrelChain))},\n");

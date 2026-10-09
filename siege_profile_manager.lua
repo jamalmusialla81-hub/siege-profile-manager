@@ -151,7 +151,7 @@ local CONFIG = {
         requireBarrel = nil,             -- old Vora profiles only applied with this barrel; nil = any barrel
         secondary     = true,   -- recoil also works on the secondary weapon (e.g. SMG-12); false = primary only
         gain          = 1.0,             -- overall pull strength multiplier
-        vertGain      = 1.8,             -- vertical-only multiplier on EVERY profile (Spear, Vora, table weapons); raise it if the pull is too weak
+        vertGain      = 1.4,             -- vertical-only multiplier on EVERY profile (Spear, Vora, table weapons); raise it if the pull is too weak
         estimateGain  = 1.0,             -- multiplies ONLY the estimated profiles (section 5c); raise it if they under-pull
         flatten       = 0.4,             -- 0..1: pull estimates toward one common per-shot kick (0 = keep class guesses)
         commonKick    = 145,             -- that common per-shot kick (Type-89 / C8-SFW level)
@@ -3138,6 +3138,7 @@ local function ApplyUserConfig()
         if IsPositiveNumber(u.sens.v) then CONFIG.sensitivity.vertical = u.sens.v end
     end
     if IsPositiveNumber(u.fov) then CONFIG.fov = u.fov end
+    if IsPositiveNumber(u.vertGain) and u.vertGain <= 5 then CONFIG.recoil.vertGain = u.vertGain elseif u.vertGain ~= nil then bad("vertGain") end
     if IsPositiveNumber(u.ads) then CONFIG.ads.default = u.ads end
     if tbl(u.adsPerScope) then
         for scope, v in pairs(u.adsPerScope) do

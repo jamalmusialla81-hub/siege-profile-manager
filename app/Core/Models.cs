@@ -100,6 +100,8 @@ public sealed class GameSettings
     public double SensV { get; set; } = 4;
     public double Fov { get; set; } = 84;
     public double Ads { get; set; } = 52;
+    /// <summary>Pull strength for every gun that has no learned profile (the Lua's vertGain).</summary>
+    public double PullGain { get; set; } = 1.4;
     public int ResW { get; set; } = 1920;
     public int ResH { get; set; } = 1080;
 }
