@@ -15,11 +15,15 @@ internal static class Program
     {
         try
         {
-            ShowSignal = new EventWaitHandle(false, EventResetMode.AutoReset, "SiegeProfileManager.Show");
+            try { ShowSignal = new EventWaitHandle(false, EventResetMode.AutoReset, "SiegeProfileManager.Show"); } catch (PlatformNotSupportedException) { }
             _single = new Mutex(true, "SiegeProfileManager.SingleInstance", out bool first);
+            if (!first && args.Contains("--updated"))                  // the old version is still shutting down: wait for it
+            {
+                first = _single.WaitOne(TimeSpan.FromSeconds(15));
+            }
             if (!first)
             {
-                ShowSignal.Set();                                       // already running (probably in the tray): ask it to open its window
+                ShowSignal?.Set();                                       // already running (probably in the tray): ask it to open its window
                 if (OperatingSystem.IsWindows()) MessageBoxW(IntPtr.Zero, "Siege Profile Manager is already running (look for its icon in the system tray, or press F7). Opening its window now.", "Siege Profile Manager", 0x40);
                 return 0;
             }

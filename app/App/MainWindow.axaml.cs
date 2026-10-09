@@ -31,6 +31,10 @@ public partial class MainWindow : Window
         C<Button>("CopyReportBtn").Click += async (_, _) => await SetClipboard(Report.Build(_app));
         C<Button>("DataFolderBtn").Click += (_, _) => OpenFolder(_app.Store.Dir, false);
         C<Button>("BrowseBtn").Click += async (_, _) => await Browse();
+        C<Button>("UpdCheckBtn").Click += async (_, _) => await CheckUpdate();
+        C<Button>("UpdInstallBtn").Click += async (_, _) => await InstallUpdate();
+        C<TextBlock>("UpdText").Text = $"Version {Updater.Current}";
+        _ = CheckUpdate(true);
 
         var barrel = C<ComboBox>("BarrelBox"); barrel.ItemsSource = new[] { "AUTO", "SUPPRESSOR", "COMPENSATOR", "FLASH HIDER", "MUZZLE BRAKE", "EXTENDED BARREL", "NONE" };
         var grip = C<ComboBox>("GripBox"); grip.ItemsSource = new[] { "AUTO", "HORIZONTAL", "VERTICAL", "ANGLED", "NONE" };
@@ -92,6 +96,25 @@ public partial class MainWindow : Window
         path = path.Trim().Trim('"');
         _app.Store.Config.LuaPath = path;
         _app.Store.Touch();
+    }
+
+    readonly Updater _upd = new();
+
+    async Task CheckUpdate(bool quiet = false)
+    {
+        var msg = await _upd.CheckAsync();
+        if (!quiet || _upd.Available) C<TextBlock>("UpdText").Text = msg;
+        C<Button>("UpdInstallBtn").IsVisible = _upd.Available;
+    }
+
+    async Task InstallUpdate()
+    {
+        C<Button>("UpdInstallBtn").IsEnabled = false;
+        C<TextBlock>("UpdText").Text = "Downloading…";
+        var (ok, msg) = await _upd.InstallAsync();
+        C<TextBlock>("UpdText").Text = msg;
+        C<Button>("UpdInstallBtn").IsEnabled = true;
+        if (ok) _app.Quit();
     }
 
     async Task Browse()

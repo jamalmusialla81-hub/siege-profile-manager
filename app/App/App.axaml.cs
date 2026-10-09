@@ -29,6 +29,7 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Updater.CleanUp();
             Store = new ConfigStore();
             Store.Load();
             Sync = new SyncService(Store, Live)
@@ -132,7 +133,7 @@ public partial class App : Application
             open.Click += (_, _) => { _main.Show(); _main.Activate(); };
             var exit = new NativeMenuItem("Exit");
             exit.Click += (_, _) => Quit();
-            var tray = new TrayIcon { Icon = new WindowIcon(bmp), ToolTipText = "Siege Profile Manager", Menu = new NativeMenu { open, exit } };
+            var tray = new TrayIcon { Icon = new WindowIcon(Avalonia.Platform.AssetLoader.Open(new Uri("avares://SiegeProfileManager/Assets/icon.png"))), ToolTipText = "Siege Profile Manager", Menu = new NativeMenu { open, exit } };
             tray.Clicked += (_, _) => { _main.Show(); _main.Activate(); };
             TrayIcon.SetIcons(this, new TrayIcons { tray });
         }

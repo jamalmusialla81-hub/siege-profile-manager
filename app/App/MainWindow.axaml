@@ -1,14 +1,14 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="SPM.App.MainWindow"
-        Title="Siege Profile Manager" Width="1260" Height="740" MinWidth="1120" MinHeight="660"
+        Icon="avares://SiegeProfileManager/Assets/icon.png" Title="Siege Profile Manager" Width="1260" Height="740" MinWidth="1120" MinHeight="660"
         Background="#0C0E13" WindowStartupLocation="CenterScreen">
   <Grid ColumnDefinitions="200,*">
     <Border Background="#13161D">
       <DockPanel Margin="16">
         <StackPanel DockPanel.Dock="Top" Margin="0,4,0,24">
           <TextBlock Text="Siege Profile" FontSize="17" FontWeight="SemiBold" Foreground="#E9EDF3" />
-          <TextBlock Text="Manager  ·  v3.0" FontSize="11" Foreground="#596275" />
+          <TextBlock Text="Manager" FontSize="11" Foreground="#596275" />
         </StackPanel>
         <Button DockPanel.Dock="Bottom" Name="QuitBtn" Classes="sec" Content="Quit app" HorizontalAlignment="Stretch" />
         <StackPanel>
@@ -178,6 +178,16 @@
               </Grid>
               <CheckBox Name="AutoWriteChk" Content="Keep the config inside this Lua file up to date automatically" />
               <TextBlock Name="LuaPathMsg" Classes="dim" FontSize="12" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="UPDATES" Classes="h" />
+              <TextBlock Name="UpdText" Foreground="#E9EDF3" TextWrapping="Wrap" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Name="UpdCheckBtn" Classes="sec" Content="Check for updates" />
+                <Button Name="UpdInstallBtn" Classes="primary" Content="Update now" IsVisible="False" />
+              </StackPanel>
             </StackPanel>
           </Border>
           <Border Classes="card">
