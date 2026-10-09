@@ -60,7 +60,12 @@ public sealed class DbwinListener : IDisposable
     }
 }
 
-/// <summary>Global keys: F8 window, F9 HUD, and the 1 / 2 weapon keys that drive the Lua's slot sync (Scroll Lock).</summary>
+/// <summary>
+/// Global keys: F8 window, F9 HUD, F10-F12 coach, and the 1 / 2 weapon keys that drive the Lua's slot sync (Scroll Lock).
+/// The hook lives on its own thread and its callback only records the key and queues it: Windows waits for a low-level
+/// hook before delivering the key to anything, so any slow work in it (foreground check, sending Scroll Lock) lags the
+/// whole keyboard. A worker thread does that work.
+/// </summary>
 public sealed class HookService : IDisposable, IMoveKeys
 {
     static readonly HashSet<int> MoveVk = new() { 0x57, 0x41, 0x53, 0x44, 0x51, 0x45, 0x43, 0x20, 0xA2, 0xA3, 0xA0 };   // W A S D Q E C Space Ctrl LShift
@@ -69,10 +74,16 @@ public sealed class HookService : IDisposable, IMoveKeys
     public bool ActivitySince(long clockMs) { lock (_down) return _down.Count > 0 || _lastMove >= clockMs; }
 
     readonly Native.LowLevelKeyboardProc _proc;
-    IntPtr _hook;
     readonly ConfigStore _store;
+    readonly System.Collections.Concurrent.BlockingCollection<int> _queue = new();
+    readonly SynchronizationContext? _ui;
+    IntPtr _hook;
+    Thread? _hookThread, _worker;
+    volatile bool _stop;
+    bool _lockOn;                                                   // our belief about Scroll Lock (kept in step by watching the key)
     public static readonly string[] SiegeExes = { "RainbowSix.exe", "RainbowSix_Vulkan.exe", "RainbowSix_BE.exe" };
-    public string Slot { get; private set; } = "PRIMARY";
+    volatile string _slot = "PRIMARY";
+    public string Slot => _slot;
 
     public event Action? ToggleWindow;
     public event Action? ToggleHud;
@@ -84,8 +95,11 @@ public sealed class HookService : IDisposable, IMoveKeys
     public HookService(ConfigStore store)
     {
         _store = store;
+        _ui = SynchronizationContext.Current;
         _proc = Callback;
     }
+
+    void Post(Action? a) { if (a == null) return; if (_ui != null) _ui.Post(_ => a(), null); else a(); }
 
     public bool SiegeActive()
     {
@@ -97,37 +111,44 @@ public sealed class HookService : IDisposable, IMoveKeys
     public void Start()
     {
         if (!OperatingSystem.IsWindows()) return;
-        _hook = Native.SetWindowsHookExW(Native.WH_KEYBOARD_LL, _proc, Native.GetModuleHandleW(null), 0);
-        Native.SetScrollLock(false);                                    // baseline: lock key OFF = primary
+        // baseline: Scroll Lock OFF = primary
+        _lockOn = (Native.GetKeyState(Native.VK_SCROLL) & 1) != 0;
+        if (_lockOn) { Native.PressScrollLock(); _lockOn = false; }
+        var ready = new ManualResetEventSlim(false);
+        _hookThread = new Thread(() => HookLoop(ready)) { IsBackground = true, Name = "KbdHook" };
+        _hookThread.Start();
+        ready.Wait(2000);
+        _worker = new Thread(Work) { IsBackground = true, Name = "KbdWork" };
+        _worker.Start();
     }
 
+    void HookLoop(ManualResetEventSlim ready)
+    {
+        _hook = Native.SetWindowsHookExW(Native.WH_KEYBOARD_LL, _proc, Native.GetModuleHandleW(null), 0);
+        ready.Set();
+        if (_hook == IntPtr.Zero) return;
+        while (!_stop && Native.GetMessageW(out var m, IntPtr.Zero, 0, 0) > 0) Native.DispatchMessageW(ref m);
+    }
+
+    /// <summary>Runs inside Windows' keyboard path: record and queue only.</summary>
     IntPtr Callback(int code, IntPtr wParam, IntPtr lParam)
     {
         try
         {
-            if (code >= 0 && (wParam == (IntPtr)0x0101 || wParam == (IntPtr)0x0105))                  // key released
+            if (code >= 0)
             {
-                int vkUp = Marshal.ReadInt32(lParam);
-                if (MoveVk.Contains(vkUp)) lock (_down) { _down.Remove(vkUp); _lastMove = Clock.Ms; }
-            }
-            if (code >= 0 && (wParam == (IntPtr)Native.WM_KEYDOWN || wParam == (IntPtr)Native.WM_SYSKEYDOWN))
-            {
+                int msg = (int)wParam;
+                bool down = msg == 0x0100 || msg == 0x0104, up = msg == 0x0101 || msg == 0x0105;
                 int vk = Marshal.ReadInt32(lParam);
-                int flags = Marshal.ReadInt32(lParam, 8);
-                bool injected = (flags & 0x10) != 0;
-                if (!injected && MoveVk.Contains(vk)) lock (_down) { _down.Add(vk); _lastMove = Clock.Ms; }
+                bool injected = (Marshal.ReadInt32(lParam, 8) & 0x10) != 0;
                 if (!injected)
                 {
-                    if (vk == 0x77) ToggleWindow?.Invoke();                                        // F8
-                    else if (vk == 0x78) ToggleHud?.Invoke();                                      // F9
-                    else if (vk == 0x79) CalFinish?.Invoke();                                      // F10
-                    else if (vk == 0x7A) CalBegin?.Invoke();                                       // F11
-                    else if (vk == 0x7B) ToggleTraining?.Invoke();                                 // F12
-                    else if ((vk == 0x31 || vk == 0x32) && _store.Config.SlotSyncEnabled && SiegeActive())
+                    if (MoveVk.Contains(vk))
+                        lock (_down) { if (down) _down.Add(vk); else if (up) _down.Remove(vk); _lastMove = Clock.Ms; }
+                    if (down)
                     {
-                        Slot = vk == 0x32 ? "SECONDARY" : "PRIMARY";
-                        Native.SetScrollLock(Slot == "SECONDARY");
-                        SlotChanged?.Invoke();
+                        if (vk == Native.VK_SCROLL) _lockOn = !_lockOn;                 // you pressed the real Scroll Lock key
+                        else if (vk is 0x77 or 0x78 or 0x79 or 0x7A or 0x7B or 0x31 or 0x32) _queue.TryAdd(vk);
                     }
                 }
             }
@@ -136,8 +157,40 @@ public sealed class HookService : IDisposable, IMoveKeys
         return Native.CallNextHookEx(_hook, code, wParam, lParam);
     }
 
+    void Work()
+    {
+        foreach (var vk in _queue.GetConsumingEnumerable())
+        {
+            if (_stop) break;
+            try
+            {
+                switch (vk)
+                {
+                    case 0x77: Post(ToggleWindow); break;                               // F8
+                    case 0x78: Post(ToggleHud); break;                                  // F9
+                    case 0x79: Post(CalFinish); break;                                  // F10
+                    case 0x7A: Post(CalBegin); break;                                   // F11
+                    case 0x7B: Post(ToggleTraining); break;                             // F12
+                    case 0x31:
+                    case 0x32:
+                        if (_store.Config.SlotSyncEnabled && SiegeActive())
+                        {
+                            bool second = vk == 0x32;
+                            _slot = second ? "SECONDARY" : "PRIMARY";
+                            if (_lockOn != second) { _lockOn = second; Native.PressScrollLock(); }
+                            Post(SlotChanged);
+                        }
+                        break;
+                }
+            }
+            catch { }
+        }
+    }
+
     public void Dispose()
     {
+        _stop = true;
+        _queue.CompleteAdding();
         if (_hook != IntPtr.Zero) { Native.UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
     }
 }

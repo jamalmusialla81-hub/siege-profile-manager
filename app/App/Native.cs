@@ -28,6 +28,9 @@ internal static class Native
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [DllImport("user32.dll")] public static extern short GetKeyState(int vk);
     [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+    [StructLayout(LayoutKind.Sequential)] public struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public int px, py; }
+    [DllImport("user32.dll")] public static extern int GetMessageW(out MSG msg, IntPtr hwnd, uint min, uint max);
+    [DllImport("user32.dll")] public static extern IntPtr DispatchMessageW(ref MSG msg);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
 
@@ -65,6 +68,14 @@ internal static class Native
         if (!OperatingSystem.IsWindows()) return;
         bool cur = (GetKeyState(VK_SCROLL) & 1) != 0;
         if (cur == on) return;
+        keybd_event(VK_SCROLL, 0x46, 1, UIntPtr.Zero);
+        keybd_event(VK_SCROLL, 0x46, 3, UIntPtr.Zero);
+    }
+
+    /// <summary>Presses and releases Scroll Lock once. Never call this from inside a keyboard hook callback.</summary>
+    public static void PressScrollLock()
+    {
+        if (!OperatingSystem.IsWindows()) return;
         keybd_event(VK_SCROLL, 0x46, 1, UIntPtr.Zero);
         keybd_event(VK_SCROLL, 0x46, 3, UIntPtr.Zero);
     }
