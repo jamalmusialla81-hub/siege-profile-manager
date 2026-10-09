@@ -1,0 +1,216 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SPM.App.MainWindow"
+        Icon="avares://SiegeProfileManager/Assets/icon.png" Title="Siege Profile Manager" Width="1260" Height="740" MinWidth="1120" MinHeight="660"
+        Background="#0C0E13" WindowStartupLocation="CenterScreen">
+  <Grid ColumnDefinitions="200,*">
+    <Border Background="#13161D">
+      <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Margin="0,4,0,24">
+          <TextBlock Text="Siege Profile" FontSize="17" FontWeight="SemiBold" Foreground="#E9EDF3" />
+          <TextBlock Text="Manager" FontSize="11" Foreground="#596275" />
+        </StackPanel>
+        <Button DockPanel.Dock="Bottom" Name="QuitBtn" Classes="sec" Content="Quit app" HorizontalAlignment="Stretch" />
+        <StackPanel>
+          <Button Name="NavHome" Classes="nav on" Content="Home" />
+          <Button Name="NavOps" Classes="nav" Content="Operators" />
+          <Button Name="NavCoach" Classes="nav" Content="Coach" />
+          <Button Name="NavSettings" Classes="nav" Content="Settings" />
+          <Button Name="NavDiag" Classes="nav" Content="Diagnostics" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Grid Grid.Column="1" Margin="26,22,26,22">
+      <!-- HOME -->
+      <ScrollViewer Name="PageHome">
+        <StackPanel>
+          <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+            <TextBlock Text="Home" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" />
+            <TextBlock Name="LinkText" Grid.Column="1" FontSize="13" FontWeight="SemiBold" Foreground="#F2B84B" VerticalAlignment="Center" />
+          </Grid>
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Text="CURRENT OPERATOR" Classes="h" />
+              <TextBlock Name="OpText" FontSize="30" FontWeight="Bold" Foreground="#E9EDF3" />
+              <TextBlock Name="SideText" FontSize="12" Foreground="#4CC9E8" Margin="0,2,0,12" />
+              <TextBlock Name="PrimText" FontSize="15" Foreground="#E9EDF3" />
+              <TextBlock Name="PrimAtt" Classes="dim" FontSize="12" Margin="0,0,0,8" />
+              <TextBlock Name="SecText" FontSize="15" Foreground="#E9EDF3" />
+              <TextBlock Name="SecAtt" Classes="dim" FontSize="12" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Text="CONFIG IN G HUB" Classes="h" />
+              <TextBlock Name="SyncText" FontSize="14" Foreground="#E9EDF3" TextWrapping="Wrap" />
+              <TextBlock Name="LuaWarn" FontSize="13" FontWeight="SemiBold" Foreground="#F07178" TextWrapping="Wrap" Margin="0,6,0,0" IsVisible="False" />
+              <TextBlock Name="SyncFile" Classes="dim" FontSize="11" Margin="0,4,0,12" TextWrapping="Wrap" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Name="CopyBtn" Classes="primary" Content="Copy script" />
+                <Button Name="FolderBtn" Classes="sec" Content="Show merged file" />
+              </StackPanel>
+              <TextBlock Name="CopyMsg" Classes="dim" FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Text="RECENT CHANGES" Classes="h" />
+              <ListBox Name="RecentList" Background="Transparent" MaxHeight="220" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- OPERATORS -->
+      <Grid Name="PageOps" IsVisible="False" ColumnDefinitions="*,330">
+        <StackPanel>
+          <TextBlock Text="Operators" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" Margin="0,0,0,12" />
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+            <Button Name="SideAtk" Classes="sec on" Content="Attack" />
+            <Button Name="SideDef" Classes="sec" Content="Defence" />
+          </StackPanel>
+          <UniformGrid Name="OpGrid" Rows="7" Columns="7" Width="640" Height="480" HorizontalAlignment="Left" />
+          <TextBlock Text="Bright name = the operator G HUB has right now.   ★ = favourite" Classes="dim" FontSize="11" Margin="0,8,0,0" />
+        </StackPanel>
+        <Border Grid.Column="1" Classes="card" Margin="16,0,0,0" VerticalAlignment="Top">
+          <StackPanel Spacing="8">
+            <TextBlock Text="SELECTED" Classes="h" />
+            <TextBlock Name="OpName" FontSize="24" FontWeight="Bold" Foreground="#E9EDF3" />
+            <CheckBox Name="FavChk" Content="Favourite" />
+            <TextBlock Text="Primary" Classes="dim" Margin="0,6,0,0" /><ComboBox Name="PrimBox" HorizontalAlignment="Stretch" />
+            <Grid ColumnDefinitions="*,*,*"><ComboBox Name="PScopeBox" Margin="0,0,4,0" HorizontalAlignment="Stretch" /><ComboBox Name="PBarrelBox" Grid.Column="1" Margin="0,0,4,0" HorizontalAlignment="Stretch" /><ComboBox Name="PGripBox" Grid.Column="2" HorizontalAlignment="Stretch" /></Grid>
+            <TextBlock Text="Secondary" Classes="dim" Margin="0,6,0,0" /><ComboBox Name="SecBox" HorizontalAlignment="Stretch" />
+            <Grid ColumnDefinitions="*,*,*"><ComboBox Name="SScopeBox" Margin="0,0,4,0" HorizontalAlignment="Stretch" /><ComboBox Name="SBarrelBox" Grid.Column="1" Margin="0,0,4,0" HorizontalAlignment="Stretch" /><ComboBox Name="SGripBox" Grid.Column="2" HorizontalAlignment="Stretch" /></Grid>
+            <Button Name="StartOpBtn" Classes="sec" Content="Use as starting operator" Margin="0,10,0,0" />
+            <TextBlock Name="OpsNote" Classes="dim" FontSize="11" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <!-- COACH -->
+      <ScrollViewer Name="PageCoach" IsVisible="False">
+        <StackPanel>
+          <TextBlock Text="Coach" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" Margin="0,0,0,16" />
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="TRAINING  (shooting range only)" Classes="h" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Name="TrainBtn" Classes="primary" Content="Start training  (F12)" />
+                <TextBlock Name="TrainText" VerticalAlignment="Center" Foreground="#E9EDF3" />
+              </StackPanel>
+              <TextBlock Name="CoachStatus" Classes="dim" FontSize="12" TextWrapping="Wrap" />
+              <CheckBox Name="MatchChk" Content="Also learn during matches (careful mode)" Margin="0,6,0,0" />
+              <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap" Text="In a match the coach only uses sprays of half a second or more where you were standing still (no W A S D, crouch, lean or jump), subtracts your own mouse movement, skips any picture it cannot match clearly, and needs 5 sprays on the same profile before it changes anything (the range needs 3). Needs the pixels-per-count calibration for the best accuracy." />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="SCREEN SCALE  (pixels the view moves per mouse count)" Classes="h" />
+              <TextBlock Name="PxText" Foreground="#E9EDF3" TextWrapping="Wrap" />
+              <TextBlock Name="CalWarn" Foreground="#F2B84B" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="False" Text="⚠ Match learning is waiting for this calibration. Until you do it, the coach ignores your match sprays." />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Name="CalGuidedBtn" Classes="primary" Content="Calibrate now  (6 s countdown)" />
+                <Button Name="CalBeginBtn" Classes="sec" Content="Manual: Start  (F11)" />
+                <Button Name="CalFinishBtn" Classes="sec" Content="Finish  (F10)" />
+              </StackPanel>
+              <TextBlock Text="Press Calibrate now: this window hides, a countdown shows on the HUD. Switch to Siege, aim at a textured wall holding aim, then move your mouse slowly down 1-2 cm when it says MOVE. It measures by itself. It only reads your mouse, it never moves it." Classes="dim" FontSize="11" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="6">
+              <TextBlock Text="LAST SPRAY" Classes="h" />
+              <TextBlock Name="LastText" Foreground="#E9EDF3" TextWrapping="Wrap" />
+              <TextBlock Name="AccText" FontSize="28" FontWeight="Bold" Foreground="#4CC9E8" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="LEARNED PER LOADOUT" Classes="h" />
+              <ListBox Name="CoachList" Background="Transparent" MaxHeight="220" />
+              <Button Name="ForgetBtn" Classes="sec" Content="Forget selected" HorizontalAlignment="Left" />
+            </StackPanel>
+          </Border>
+          <TextBlock TextWrapping="Wrap" Classes="dim" FontSize="12" Text="How it works: while you spray in the range the app takes a picture of the top-left of the screen every quarter second and measures how far the view moved between pictures. Recoil minus your macro's pull is what moves the view, so that movement is the error, measured separately for the early, mid and late part of the spray. After 3 sprays it saves an improved profile for that exact loadout into your Lua file (then paste the script into G HUB). Once a profile is within 4% it LOCKS and stops changing. It never runs outside Training." />
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- SETTINGS -->
+      <ScrollViewer Name="PageSettings" IsVisible="False">
+        <StackPanel>
+          <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" Margin="0,0,0,16" />
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Text="GAME" Classes="h" />
+              <Grid ColumnDefinitions="170,160" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+                <Grid.Styles><Style Selector="Grid > Control"><Setter Property="Margin" Value="0,0,0,8" /></Style></Grid.Styles>
+                <TextBlock Text="Mouse DPI" VerticalAlignment="Center" /><NumericUpDown Name="DpiBox" Grid.Column="1" Minimum="50" Maximum="32000" Increment="50" FormatString="0" />
+                <TextBlock Grid.Row="1" Text="Sensitivity horizontal" VerticalAlignment="Center" /><NumericUpDown Name="SensHBox" Grid.Row="1" Grid.Column="1" Minimum="0.1" Maximum="100" Increment="0.5" FormatString="0.0#" />
+                <TextBlock Grid.Row="2" Text="Sensitivity vertical" VerticalAlignment="Center" /><NumericUpDown Name="SensVBox" Grid.Row="2" Grid.Column="1" Minimum="0.1" Maximum="100" Increment="0.5" FormatString="0.0#" />
+                <TextBlock Grid.Row="3" Text="Field of view" VerticalAlignment="Center" /><NumericUpDown Name="FovBox" Grid.Row="3" Grid.Column="1" Minimum="40" Maximum="140" Increment="1" FormatString="0" />
+                <TextBlock Grid.Row="4" Text="ADS sensitivity" VerticalAlignment="Center" /><NumericUpDown Name="AdsBox" Grid.Row="4" Grid.Column="1" Minimum="1" Maximum="200" Increment="1" FormatString="0" />
+                <TextBlock Grid.Row="6" Text="Pull strength" VerticalAlignment="Center" /><NumericUpDown Name="PullBox" Grid.Row="6" Grid.Column="1" Minimum="0.3" Maximum="3" Increment="0.05" FormatString="0.00" />
+                <TextBlock Grid.Row="5" Text="Resolution (W x H)" VerticalAlignment="Center" />
+                <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                  <NumericUpDown Name="ResWBox" Width="84" Minimum="640" Maximum="16384" Increment="1" FormatString="0" ShowButtonSpinner="False" />
+                  <NumericUpDown Name="ResHBox" Width="84" Minimum="480" Maximum="16384" Increment="1" FormatString="0" ShowButtonSpinner="False" />
+                </StackPanel>
+              </Grid>
+              <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap" Text="Pull strength scales the recoil pull of every gun that has no learned profile. Lower it if most guns pull the view down too far, raise it if they climb. Guns the coach has learned are not affected. Paste the script into G HUB after changing it." />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Text="DEFAULT ATTACHMENTS" Classes="h" />
+              <Grid ColumnDefinitions="170,200" RowDefinitions="Auto,Auto">
+                <Grid.Styles><Style Selector="Grid > Control"><Setter Property="Margin" Value="0,0,0,8" /></Style></Grid.Styles>
+                <TextBlock Text="Preferred barrel" VerticalAlignment="Center" /><ComboBox Name="BarrelBox" Grid.Column="1" Width="200" />
+                <TextBlock Grid.Row="1" Text="Preferred grip" VerticalAlignment="Center" /><ComboBox Name="GripBox" Grid.Row="1" Grid.Column="1" Width="200" />
+              </Grid>
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Text="LUA SCRIPT" Classes="h" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Name="LuaPathBox" Watermark="Path to siege_profile_manager.lua" />
+                <Button Name="BrowseBtn" Grid.Column="1" Classes="sec" Content="Browse…" Margin="8,0,0,0" />
+              </Grid>
+              <CheckBox Name="AutoWriteChk" Content="Keep the config inside this Lua file up to date automatically" />
+              <TextBlock Name="LuaPathMsg" Classes="dim" FontSize="12" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="UPDATES" Classes="h" />
+              <TextBlock Name="UpdText" Foreground="#E9EDF3" TextWrapping="Wrap" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Name="UpdCheckBtn" Classes="sec" Content="Check for updates" />
+                <Button Name="UpdInstallBtn" Classes="primary" Content="Update now" IsVisible="False" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="BEHAVIOUR" Classes="h" />
+              <CheckBox Name="HudChk" Content="Show the HUD overlay  (F9)" />
+              <CheckBox Name="SlotChk" Content="Follow the 1 / 2 weapon keys (needed for secondary-weapon recoil)" />
+              <CheckBox Name="SlotAnyChk" Content="React to 1 / 2 in any window (for testing without Siege)" />
+              <TextBlock Text="F7 shows or hides this window. The HUD never takes mouse clicks." Classes="dim" FontSize="12" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- DIAGNOSTICS -->
+      <Grid Name="PageDiag" IsVisible="False" RowDefinitions="Auto,*,Auto">
+        <TextBlock Text="Diagnostics" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" Margin="0,0,0,16" />
+        <TextBox Name="ReportBox" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" FontFamily="Consolas,Courier New,monospace" FontSize="12" TextWrapping="NoWrap" />
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,12,0,0">
+          <Button Name="CopyReportBtn" Classes="primary" Content="Copy report" />
+          <Button Name="DataFolderBtn" Classes="sec" Content="Open data folder" />
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>

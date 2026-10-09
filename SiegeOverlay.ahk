@@ -34,11 +34,11 @@ class App {
 }
 
 class Clr {   ; colour tokens (RGB hex, no #)
-    static Bg := "090B10", Panel := "11141B", Panel2 := "1A1F29", Line := "252B38", Sel := "0F2B38"
-    static Text := "F5F7FA", Dim := "97A1B2", Mute := "596378"
-    static Accent := "22D3EE", Accent2 := "8B5CF6", Ink := "04141A"   ; brand gradient (cyan -> violet) + dark text on top of it
-    static GreenDim := "1F9E74"                                         ; the low point of the "live" pulse
-    static Green := "34E0A1", Amber := "FBBF24", Red := "FB7185", Blue := "60A5FA"   ; status colours
+    static Bg := "0C0E13", Panel := "13161D", Panel2 := "1A1E27", Line := "232834", Sel := "18212C"
+    static Text := "E9EDF3", Dim := "8D96A8", Mute := "596275"
+    static Accent := "4CC9E8", Accent2 := "4CC9E8", Ink := "06131A"   ; one accent colour (Accent2 = Accent: gradients render as flat lines)
+    static GreenDim := "2A9672"                                         ; the low point of the "live" pulse
+    static Green := "4ADE9C", Amber := "F2B84B", Red := "F07178", Blue := "6CA8F0"   ; status colours
 }
 
 Clamp(v, lo, hi) => Min(Max(v, lo), hi)
@@ -646,6 +646,21 @@ class Cfg {
     }
 
     ; --- change tracking ------------------------------------------------------
+    ; Standard weapon choices, written ONCE into the saved loadouts (a saved loadout beats the built-in default). After that the
+    ; app remembers whatever you pick in game, as usual. Add more operators here to seed them the same way.
+    static SeedStandard() {
+        if (Cfg.Get("prefs.standardSeed", 0) >= 1)
+            return
+        for name, picks in Map("Mute", ["M590A1", "SMG-11"], "Warden", ["M590A1", "SMG-12"]) {
+            lo := Map()
+            lo["primary"] := LoadoutMgr.Fix(name, "primary", Map("weapon", picks[1]))
+            lo["secondary"] := LoadoutMgr.Fix(name, "secondary", Map("weapon", picks[2]))
+            Cfg.SetSaved(name, lo, false)
+        }
+        Cfg.Data["prefs"]["standardSeed"] := 1
+        Cfg.Dirty()
+    }
+
     static Dirty() {
         Cfg.Ver++
         if !IsObject(Cfg.Fn)
@@ -944,6 +959,7 @@ class Cfg {
             Cfg.SaveError := e.Message
             Diag.Log("config save failed: " e.Message)
         }
+        try LuaBlock.AutoSave()                ; keep the Lua file on disk in step with the config
     }
 
     ; --- export / import / backups -------------------------------------------
@@ -1139,6 +1155,27 @@ class LuaBlock {
         eol := InStr(text, "`r`n") ? "`r`n" : "`n"
         block := StrReplace(RTrim(LuaBlock.Build(rev), "`n"), "`n", eol)
         return SubStr(text, 1, b - 1) block SubStr(text, e2 + StrLen(endMark))
+    }
+
+    ; Every config save also rewrites the SPM_USER block inside the Lua file on disk (only when the block really
+    ; changed), so a script you paste later always carries your latest calibration, loadouts and learned profiles.
+    ; Everything outside the markers is left byte for byte. G HUB still needs the new script pasted once.
+    static LastBody := ""
+    static AutoSave() {
+        p := Cfg.Get("lua.path", "")
+        if (p = "" || !FileExist(p))
+            return
+        body := LuaBlock.Build("0")
+        if (body = LuaBlock.LastBody)
+            return
+        text := LuaBlock.FullScript(A_Now, &err)
+        if (text = "")
+            return
+        f := FileOpen(p, "w", "UTF-8-RAW")
+        f.Write(text)
+        f.Close()
+        LuaBlock.LastBody := body
+        Diag.Log("Lua file on disk updated with the current config")
     }
 
     ; Puts the complete script (with the user's config merged in) on the clipboard and marks the
@@ -1588,6 +1625,8 @@ class Sync {
                 Calib.OnLuaDetect(e)
             case "burst_start":
                 Coach.OnLuaStart()
+                ScreenCoach.OnStart()
+                SightTrace.OnStart()
                 if IsObject(Recorder.Cur) {
                     Recorder.Cur["macro"] := 1               ; the macro is moving the mouse during this burst
                     Recorder.Cur["recoil"] := e.Get("recoil", "0") = "1" ? 1 : 0
@@ -1601,6 +1640,8 @@ class Sync {
                 b["active"] := 0, b["lastT"] := A_TickCount
                 b["last"] := Round(e.Get("ms", 0) / 1000, 1) " s, " e.Get("ticks", 0) " ticks, " e.Get("clicks", 0) " clicks"
                 Coach.OnLuaEnd(e)
+                SightTrace.OnEnd(e)
+                ScreenCoach.OnEnd(e)
         }
     }
 
@@ -1723,12 +1764,12 @@ class Ui {
     static Pt(v) => Max(7, Round(v * Cfg.Num("ui.scale", 1.0)))
 
     ; Text with a solid background (so it never leaves repaint artefacts on a card).
-    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "F5F7FA", bg := "090B10", opts := "", face := "Segoe UI") {
+    static Txt(g, x, y, w, h, text, size := 9, style := "Norm", color := "F5F7FA", bg := "0C0E13", opts := "", face := "Segoe UI") {
         g.SetFont("s" Ui.Pt(size) " " style " c" color, face)
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x200 +0x4000 Background" bg " " opts, text)
     }
 
-    static Mono(g, x, y, w, h, text, size := 9, color := "F5F7FA", bg := "090B10") {
+    static Mono(g, x, y, w, h, text, size := 9, color := "F5F7FA", bg := "0C0E13") {
         g.SetFont("s" Ui.Pt(size) " Norm c" color, "Consolas")
         return g.AddText("x" Ui.S(x) " y" Ui.S(y) " w" Ui.S(w) " h" Ui.S(h) " +0x4000 Background" bg, text)
     }
@@ -1875,7 +1916,7 @@ class Seg {
 
 ; Clickable checkbox drawn as text ("☑ label" / "☐ label").
 class Toggle {
-    __New(g, x, y, w, label, on, cb, bg := "090B10") {
+    __New(g, x, y, w, label, on, cb, bg := "0C0E13") {
         this.Label := label
         this.On := on ? 1 : 0
         this.Cb := cb
@@ -2267,9 +2308,7 @@ class Center {
 
     static Card(add, g, x, y, w, h, title) {
         add(Ui.Rect(g, x, y, w, h, Clr.Panel))
-        add(Ui.Rect(g, x, y, w, 2, Clr.Line))                    ; hard top edge
-        add(Ui.Rect(g, x + 14, y + 12, 3, 12, Clr.Accent))        ; accent tick
-        add(Ui.Txt(g, x + 24, y + 8, w - 38, 20, title, 8, "Bold", Clr.Dim, Clr.Panel))
+        add(Ui.Txt(g, x + 14, y + 8, w - 28, 20, title, 8, "Bold", Clr.Mute, Clr.Panel))
     }
 
     static Build() {
@@ -2290,26 +2329,24 @@ class Center {
 
         ; --- header ---------------------------------------------------------------
         Ui.Rect(g, 0, 0, Center.W, 60, Clr.Panel)
-        Ui.Rect(g, 16, 8, 52, 44, Ui.Mix(Clr.Panel, Clr.Accent, 0.35))        ; glow
-        Ui.Rect(g, 18, 10, 48, 40, Ui.Mix(Clr.Panel, Clr.Accent, 0.6))
-        Ui.Txt(g, 20, 12, 44, 36, "SPM", 11, "Bold", Clr.Ink, Clr.Accent, "Center", "Segoe UI Black")
-        Ui.Txt(g, 80, 9, 380, 26, "SIEGE PROFILE MANAGER", 14, "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Black")
-        Ui.Txt(g, 80, 35, 380, 16, "CONTROL CENTRE   ·   V" App.Version, 8, "Bold", Clr.Accent, Clr.Panel)
+        Ui.Txt(g, 20, 10, 380, 24, "Siege Profile Manager", 13, "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Semibold")
+        Ui.Txt(g, 20, 34, 380, 16, "Control centre  ·  v" App.Version, 8, "Norm", Clr.Mute, Clr.Panel)
         Center.Ctl["pill"] := Ui.Txt(g, 470, 18, 300, 26, "", 10, "Bold", Clr.Green, Clr.Panel, "Right")
-        Ui.Btn(g, 790, 14, 170, 32, "◂  COMPACT HUD", () => View.SetMode("hud"))
-        Ui.Gradient(g, 0, 59, Center.W, 3, Clr.Accent, Clr.Accent2, 64)
+        Ui.Btn(g, 790, 14, 170, 32, "Compact HUD", () => View.SetMode("hud"))
+        Ui.Rect(g, 0, 60, Center.W, 1, Clr.Line)
         ; --- sidebar --------------------------------------------------------------
         Ui.Rect(g, 0, 61, 176, Center.H - 61, Clr.Panel)
-        y := 78
+        Ui.Rect(g, 175, 61, 1, Center.H - 61, Clr.Line)
+        y := 76
         for name in Center.Names {
             Center.NavBar[name] := Ui.Rect(g, 0, y, 4, 38, Clr.Panel)
-            t := Ui.Txt(g, 4, y, 172, 38, "   " Center.Glyph.Get(name, "•") "   " name, 10, "Bold", Clr.Dim, Clr.Panel, "+0x100")
+            t := Ui.Txt(g, 4, y, 171, 38, "     " StrTitle(name), 10, "Norm", Clr.Dim, Clr.Panel, "+0x100")
             t.OnEvent("Click", Center.OpenPage.Bind(Center, name))
             Center.Nav[name] := t
             y += 42
         }
-        Ui.Txt(g, 14, Center.H - 96, 150, 16, "LUA CONFIG", 8, "Bold", Clr.Mute, Clr.Panel)
-        Center.Ctl["sync"] := Ui.Txt(g, 14, Center.H - 78, 152, 62, "", 8, "Norm", Clr.Dim, Clr.Panel, "")
+        Ui.Txt(g, 20, Center.H - 96, 150, 16, "Lua config", 8, "Bold", Clr.Mute, Clr.Panel)
+        Center.Ctl["sync"] := Ui.Txt(g, 20, Center.H - 78, 148, 62, "", 8, "Norm", Clr.Dim, Clr.Panel, "")
         Center.Ctl["sync"].Opt("-0x200 -0x4000")
 
         Center.BuildHome(g)
@@ -2413,9 +2450,6 @@ class Center {
         c := Center.Ctl
         ; ---- hero: the operator and loadout you are on ----
         add(Ui.Rect(g, 196, 76, 764, 116, Clr.Panel))
-        for gc in Ui.Gradient(g, 196, 76, 764, 3, Clr.Accent, Clr.Accent2, 48)
-            add(gc)
-        add(Ui.Rect(g, 196, 79, 4, 113, Clr.Accent))
         c["h_side"] := add(Ui.Txt(g, 218, 92, 400, 18, "", 9, "Bold", Clr.Accent, Clr.Panel))
         c["h_op"] := add(Ui.Txt(g, 216, 110, 420, 44, "", 28, "Bold", Clr.Text, Clr.Panel, "", "Segoe UI Black"))
         c["h_lo"] := add(Ui.Txt(g, 218, 158, 420, 22, "", 9, "Norm", Clr.Dim, Clr.Panel))
@@ -2426,7 +2460,7 @@ class Center {
         c["h_s2"] := add(Ui.Txt(g, 668, 166, 284, 20, "", 8, "Norm", Clr.Dim, Clr.Panel))
         ; ---- live module chips (states straight from the Lua) ----
         for i, ch in Center.ChipDefs
-            Center.Chips.Push(add(Ui.Txt(g, 196 + (i - 1) * 128, 204, 122, 28, "", 8, "Bold", Clr.Dim, Clr.Panel2, "Center")))
+            Center.Chips.Push(add(Ui.Txt(g, 196 + (i - 1) * 128, 204, 122, 28, "", 8, "Bold", Clr.Dim, Clr.Bg, "")))
         ; ---- link + calibration ----
         Center.Card(add, g, 196, 246, 374, 106, "G HUB LINK")
         c["h_conn"] := add(Ui.Txt(g, 210, 272, 346, 26, "", 13, "Bold", Clr.Green, Clr.Panel))
@@ -2462,19 +2496,19 @@ class Center {
             bb := Live.Burst
             if (ms = "ENABLED" && bb["active"] && ((i = 1 && bb["recoil"]) || (i = 2 && bb["rapid"])))
                 ms := "ACTIVE"
-            SetText(Center.Chips[i], "● " ch[1])
+            SetText(Center.Chips[i], "● " StrTitle(ch[1]))
             Ui.Paint(Center.Chips[i], ms = "ENABLED" ? Clr.Green : ms = "ACTIVE" ? Clr.Accent : ms = "UNAVAILABLE" ? Clr.Amber : ms = "DISABLED" ? Clr.Red : Clr.Mute)
         }
         ; hero
         fav := has && IndexOf(Cfg.Get("favorites"), Live.OpName()) ? "★  " : ""
-        SetText(c["h_side"], has ? Db.SideLabel(Live.Side()) "  SIDE" : "WAITING FOR G HUB")
+        SetText(c["h_side"], has ? StrTitle(Db.SideLabel(Live.Side())) " side" : "Waiting for G HUB")
         SetText(c["h_op"], has ? fav StrUpper(Live.OpName()) : "—")
-        SetText(c["h_lo"], has ? "Loadout  " Live.Get("loadout", "-") "     ·     System " (Live.Get("enabled") = "1" ? "ON" : "OFF") : "Press RALT + left click once")
+        SetText(c["h_lo"], has ? "Loadout " Live.Get("loadout", "-") "   ·   System " (Live.Get("enabled") = "1" ? "ON" : "OFF") : "Press RALT + left click once")
         active := Live.Slot()
         for kind, ids in Map("primary", ["h_p1", "h_p2"], "secondary", ["h_s1", "h_s2"]) {
             w := Live.Get(kind, "-")
             isA := (active = kind)
-            SetText(c[ids[1]], has ? (isA ? "►  " : "    ") StrUpper(kind) "   " w : "")
+            SetText(c[ids[1]], has ? (isA ? "►  " : "    ") StrTitle(kind) "   " w : "")
             Ui.Paint(c[ids[1]], isA ? Clr.Text : Clr.Dim)
             if (has && w != "NONE" && w != "-")
                 SetText(c[ids[2]], "      " Center.A(Live.Att(kind, "scope")) "  ·  " Center.A(Live.Att(kind, "barrel")) "  ·  " Center.A(Live.Att(kind, "grip")))
@@ -3100,7 +3134,8 @@ class Center {
         c["c_step2"] := add(Ui.Txt(g, 744, 142, 216, 40, "", 9, "Norm", Clr.Dim))
         c["c_step2"].Opt("-0x200 -0x4000")
         c["c_pts"] := add(Ui.Mono(g, 744, 186, 216, 52, "", 8, Clr.Dim, Clr.Bg))
-        add(Ui.Btn(g, 744, 248, 216, 32, "START CALIBRATION", () => Calib.Start(Calib.Side), "p"))
+        add(Ui.Btn(g, 744, 248, 104, 32, "AUTO-DETECT", () => AutoCal.Run(Calib.Side), "p"))
+        add(Ui.Btn(g, 856, 248, 104, 32, "MANUAL", () => Calib.Start(Calib.Side)))
         add(Ui.Btn(g, 744, 286, 216, 30, "CANCEL", () => Calib.Cancel()))
         add(Ui.Btn(g, 744, 322, 104, 30, "RESET THIS", () => Calib.ResetSide(Calib.Side), "d"))
         add(Ui.Btn(g, 856, 322, 104, 30, "RESET BOTH", () => Calib.ResetBoth(), "d"))
@@ -3130,7 +3165,7 @@ class Center {
         SetText(c["c_step2"], Calib.Active
             ? (Calib.Step = 1 ? "Hover the OUTER top-left corner of the first operator tile, then press " Cfg.Get("hotkeys.capture") "."
                 : "Hover the OUTER bottom-right corner of the last tile (row 7, column 7), then press " Cfg.Get("hotkeys.capture") ".")
-            : (Calib.Err != "" ? "⚠ " Calib.Err : "Open the operator selector in Siege, press START, then capture the two corners."))
+            : (Calib.Err != "" ? "⚠ " Calib.Err : "Open the operator selector in Siege and press AUTO-DETECT (it also runs by itself). MANUAL = capture the two corners."))
         pts := ""
         for i, p in Calib.Pts
             pts .= (i = 1 ? "TOP LEFT      " : "BOTTOM RIGHT  ") Format("{:.4f}, {:.4f}", p[1], p[2]) "`n"
@@ -4011,6 +4046,228 @@ class Calib {
 }
 
 ; ------------------------------------------------------------------------------
+; 16b. AUTO CALIBRATION  (finds the 7x7 operator grid on screen, no clicks)
+;     Screenshots the primary monitor, counts hard edges per column / row, then looks for seven
+;     evenly spaced tile edges (left + right) on each axis. Only a clean, plausible result is
+;     saved; anything uncertain is rejected and the manual 2-click calibration stays available.
+;     It runs by itself while Siege is the active window and a side has no calibration yet.
+; ------------------------------------------------------------------------------
+class AutoCal {
+    static Busy := false
+    static Last := ""
+
+    ; Screenshot -> 32-bit top-down pixel buffer (B,G,R,A per pixel)
+    static Grab(w, h) {
+        hdc := DllCall("GetDC", "Ptr", 0, "Ptr")
+        mdc := DllCall("CreateCompatibleDC", "Ptr", hdc, "Ptr")
+        bmp := DllCall("CreateCompatibleBitmap", "Ptr", hdc, "Int", w, "Int", h, "Ptr")
+        old := DllCall("SelectObject", "Ptr", mdc, "Ptr", bmp, "Ptr")
+        DllCall("BitBlt", "Ptr", mdc, "Int", 0, "Int", 0, "Int", w, "Int", h, "Ptr", hdc, "Int", 0, "Int", 0, "UInt", 0x40CC0020)   ; SRCCOPY | CAPTUREBLT
+        bi := Buffer(40, 0)
+        NumPut("UInt", 40, bi, 0), NumPut("Int", w, bi, 4), NumPut("Int", -h, bi, 8), NumPut("UShort", 1, bi, 12), NumPut("UShort", 32, bi, 14)
+        buf := Buffer(w * h * 4, 0)
+        DllCall("GetDIBits", "Ptr", mdc, "Ptr", bmp, "UInt", 0, "UInt", h, "Ptr", buf, "Ptr", bi, "UInt", 0)
+        DllCall("SelectObject", "Ptr", mdc, "Ptr", old)
+        DllCall("DeleteObject", "Ptr", bmp)
+        DllCall("DeleteDC", "Ptr", mdc)
+        DllCall("ReleaseDC", "Ptr", 0, "Ptr", hdc)
+        return buf
+    }
+
+    ; How many sampled lines have a hard edge at each column (px) and each row (py). Index = pixel + 1.
+    static Profiles(buf, w, h, &px, &py) {
+        px := [], py := []
+        loop w
+            px.Push(0)
+        loop h
+            py.Push(0)
+        thr := 28, stp := 4
+        y := 0
+        while (y < h) {
+            row := y * w * 4 + 1                        ; +1 = the green byte, a good enough brightness
+            prev := NumGet(buf, row, "UChar")
+            x := 1
+            while (x < w) {
+                cur := NumGet(buf, row + x * 4, "UChar")
+                if (Abs(cur - prev) > thr)
+                    px[x + 1] += 1
+                prev := cur
+                x += 1
+            }
+            y += stp
+        }
+        x := 0
+        while (x < w) {
+            prev := NumGet(buf, x * 4 + 1, "UChar")
+            y := 1
+            while (y < h) {
+                cur := NumGet(buf, (y * w + x) * 4 + 1, "UChar")
+                if (Abs(cur - prev) > thr)
+                    py[y + 1] += 1
+                prev := cur
+                y += 1
+            }
+            x += stp
+        }
+    }
+
+    ; Finds the seven-tile comb on one axis. Returns Map(start, stop, score) in pixels or "" when nothing clean is found.
+    static Comb(P) {
+        n := P.Length
+        mx := 0
+        for v in P
+            mx := Max(mx, v)
+        if (mx < 12)
+            return ""
+        hist := []
+        loop mx + 1
+            hist.Push(0)
+        for v in P
+            hist[v + 1] += 1
+        cut := n * 0.02, acc := 0, p98 := mx
+        loop mx + 1 {
+            i := mx + 2 - A_Index
+            acc += hist[i]
+            if (acc >= cut) {
+                p98 := i - 1
+                break
+            }
+        }
+        T := Max(8, p98 * 0.5)
+        ; M = P widened by +-3 px, so a fractional pitch still lands on the edge
+        M := []
+        loop n {
+            lo := Max(1, A_Index - 3), hi := Min(n, A_Index + 3), m := 0
+            i := lo
+            while (i <= hi) {
+                m := Max(m, P[i])
+                i += 1
+            }
+            M.Push(m)
+        }
+        cands := []
+        loop n
+            if (P[A_Index] >= T)
+                cands.Push(A_Index)
+        if (cands.Length < 7)
+            return ""
+        best := 0, bs := 0, bp := 0, bc := 0
+        p := Max(8, Round(n * 0.03))
+        pmax := Round(n * 0.2)
+        while (p <= pmax) {
+            for s in cands {
+                if (s + 6 * p + p > n)
+                    break
+                sum := 0, ok := true
+                loop 7 {
+                    v := M[Round(s + (A_Index - 1) * p)]
+                    if (v < T) {
+                        ok := false
+                        break
+                    }
+                    sum += v
+                }
+                if !ok
+                    continue
+                cb := 0, csum := 0
+                c := Round(p * 0.8)
+                while (c <= Round(p * 0.995)) {
+                    rs := 0, ok2 := true
+                    loop 7 {
+                        pos := Round(s + c + (A_Index - 1) * p)
+                        v := pos <= n ? M[pos] : 0
+                        if (v < T) {
+                            ok2 := false
+                            break
+                        }
+                        rs += v
+                    }
+                    if (ok2 && rs > csum)
+                        csum := rs, cb := c
+                    c += 1
+                }
+                if (cb && sum + csum > best)
+                    best := sum + csum, bs := s, bp := p, bc := cb
+            }
+            p += 0.5
+        }
+        if !bs
+            return ""
+        ; snap both outer edges to the strongest nearby line
+        a := bs, b := Round(bs + 6 * bp + bc)
+        va := 0, vb := 0
+        loop 7 {
+            ia := bs - 4 + A_Index, ib := b - 4 + A_Index
+            if (ia >= 1 && ia <= n && P[ia] > va)
+                va := P[ia], a := ia
+            if (ib >= 1 && ib <= n && P[ib] > vb)
+                vb := P[ib], b := ib
+        }
+        return Map("start", a - 1, "stop", b - 1, "score", best, "pitch", bp)
+    }
+
+    ; Detects the grid and saves it for `side`. quiet = no toasts on failure (background attempts).
+    static Run(side, quiet := false) {
+        if (AutoCal.Busy || Calib.Active)
+            return false
+        AutoCal.Busy := true
+        ok := false
+        try {
+            w := A_ScreenWidth, h := A_ScreenHeight
+            buf := AutoCal.Grab(w, h)
+            AutoCal.Profiles(buf, w, h, &px, &py)
+            cx := AutoCal.Comb(px)
+            cy := AutoCal.Comb(py)
+            why := ""
+            if (!IsObject(cx) || !IsObject(cy))
+                why := "no 7x7 tile grid found on screen"
+            else if ((cx["stop"] - cx["start"]) < w * 0.2 || (cy["stop"] - cy["start"]) < h * 0.2)
+                why := "the grid it found is too small to be the operator selector"
+            else if (cx["start"] < 0 || cy["start"] < 0 || cx["stop"] > w || cy["stop"] > h)
+                why := "the grid it found runs off the screen"
+            if (why = "") {
+                a := Calib.Norm(cx["start"], cy["start"]), b := Calib.Norm(cx["stop"], cy["stop"])
+                if (b[1] <= a[1] || b[2] <= a[2])
+                    why := "the corners came out in the wrong order"
+            }
+            if (why != "") {
+                AutoCal.Last := why
+                Diag.Log("auto calibration: " why)
+                if !quiet
+                    Toast.Show("warn", "AUTO CALIBRATION", "Could not find the grid", "Open the operator selector and try again, or use MANUAL", "")
+            } else {
+                Calib.Store(side, a[1], a[2], b[1], b[2], "auto")
+                Cfg.Dirty()
+                AutoCal.Last := Format("found {:.4f},{:.4f} to {:.4f},{:.4f}", a[1], a[2], b[1], b[2])
+                Diag.Log("auto calibration " side ": " AutoCal.Last)
+                Toast.Show("ok", "✓ AUTO CALIBRATED", Db.SideLabel(side) " GRID", "Copy the Lua script to use it in game", "")
+                ok := true
+            }
+        } catch as e {
+            AutoCal.Last := "error: " e.Message
+            Diag.Log("auto calibration " AutoCal.Last)
+            if !quiet
+                Toast.Show("warn", "AUTO CALIBRATION", "Failed: " e.Message, "", "")
+        } finally
+            AutoCal.Busy := false
+        View.Changed()
+        return ok
+    }
+
+    ; Background attempt: only while Siege is the active window and the current side has no grid of its own.
+    static Tick() {
+        if (!Cfg.Get("game.autoCal", 1) || AutoCal.Busy || Calib.Active || Calib.Testing)
+            return
+        side := Calib.Side
+        if (Calib.HasCal(side) || Calib.Shared(side))
+            return
+        if !SlotSync.SiegeActive()
+            return
+        AutoCal.Run(side, true)
+    }
+}
+
+; ------------------------------------------------------------------------------
 ; 17. HOTKEYS
 ; ------------------------------------------------------------------------------
 class Hk {
@@ -4024,10 +4281,10 @@ class Hk {
         ["LOADOUT", "nextPrimary", "Next primary weapon", "lalt", 5], ["LOADOUT", "nextSecondary", "Next secondary weapon", "lalt", 4],
         ["LOADOUT", "nextLoadout", "Next saved loadout", "ralt", 2], ["LOADOUT", "prevLoadout", "Previous saved loadout", "ralt", 3],
         ["ATTACHMENTS", "nextScope", "Next scope", "lshift", 5], ["ATTACHMENTS", "nextBarrel", "Next barrel", "lshift", 4],
-        ["ATTACHMENTS", "nextGrip", "Next grip", "lalt", 1],
+        ["ATTACHMENTS", "nextGrip", "Next grip", "lalt", 3],
         ["CALIBRATION", "toggleCalibration", "Calibrate: start / set corner", "rshift", 4], ["CALIBRATION", "resetCalibration", "Cancel / reset calibration", "rshift", 5],
         ["SYSTEM", "toggleSystem", "System on/off", "ralt", 5], ["SYSTEM", "toggleDebug", "Debug on/off", "ralt", 4],
-        ["SYSTEM", "redraw", "Redraw / resend state", "ralt", 1], ["SYSTEM", "toggleRecoilTune", "Recoil tune on/off", "lshift", 1]
+        ["SYSTEM", "redraw", "Redraw / resend state", "ralt", 1]
     ]
     static AhkDefaults := Map("mode", "F8", "visible", "F9", "capture", "F7", "profiles", "F10", "record", "F6")
     static AhkLabels := Map("mode", "Compact HUD / Control centre", "visible", "Show / hide everything"
@@ -4358,6 +4615,8 @@ class Coach {
     }
 
     static Skip(msg) {
+        ScreenCoach.Last := "skipped: " msg
+        Coach.Seen++                    ; a skipped burst is still a burst seen (scored = seen - skipped)
         Coach.Skipped++
         Coach.Msg := "skipped: " msg
         View.Changed()
@@ -4375,13 +4634,12 @@ class Coach {
     static Analyze() {
         raw := Coach.Raw, fin := Coach.End
         Coach.Raw := "", Coach.End := ""
-        Coach.Seen++
-        if (fin["py"] <= 0 || fin["ticks"] < 40) {
-            Coach.Skip("the macro did not pull (aim down sights, hold fire 0.5 s or more)")
+        if (fin["py"] <= 0 || fin["ticks"] < 25) {
+            Coach.Skip("the macro did not pull (aim down sights, hold fire 0.3 s or more)")
             return
         }
         nb := Min(80, Floor(raw["dur"] / 100))
-        if (nb < 5) {
+        if (nb < 3) {
             Coach.Skip("burst too short (" Round(raw["dur"]) " ms)")
             return
         }
@@ -4464,6 +4722,7 @@ class Coach {
             w.Push(v), sumW += v
         }
         sA := 0, sB := 0, sC := 0, nA := 0, nB := 0, nC := 0, sX := 0, nX := 0
+        moved := 0                                            ; how much you actually corrected by hand (counts)
         loop nb {
             i := A_Index
             if (i = 1)
@@ -4476,6 +4735,7 @@ class Coach {
                 yr := yp[i] - (sumW > 0 ? fin["py"] * w[i] / sumW : 0)
                 xr := xp[i] - fin["px"] / nb
             }
+            moved += Abs(yr) + Abs(xr)
             ry := yr * 0.07 / sy
             rx := xr * 0.07 / sx
             tc := (i - 0.5) * 100
@@ -4487,6 +4747,11 @@ class Coach {
                 sC += ry, nC++
             sX += rx, nX++
         }
+        if (moved < 60) {
+            ; The score only sees YOUR corrections. No correction means "unknown", not "perfect": the old code scored it 100%.
+            Coach.Skip("no corrections from you in that spray, so there is nothing to score (this app cannot see where the bullets land)")
+            return
+        }
         mA := nA ? sA / nA : 0, mB := nB ? sB / nB : 0, mC := nC ? sC / nC : 0, mX := nX ? sX / nX : 0
         n := nA + nB + nC
         err := (Abs(mA) * nA + Abs(mB) * nB + Abs(mC) * nC) / Max(n, 1)
@@ -4494,6 +4759,7 @@ class Coach {
         acc := 100 * (1 - Min(1, err / Max(meanPull, 0.5) * 2))
         Coach.Result := Map("key", raw["key"], "acc", acc, "mA", mA, "mB", mB, "mC", mC, "mX", mX, "pa", pa, "pb", pb, "pc", pc
             , "nA", nA, "nB", nB, "nC", nC, "dur", raw["dur"], "py", fin["py"], "t", A_Now)
+        Coach.Seen++
         Coach.Record(raw["key"], pa, pb, pc, pxs, t1, t2, mA, mB, mC, mX, acc)
         Coach.Msg := "burst scored: " Round(acc) "% accurate"
         View.Changed()
@@ -4545,6 +4811,13 @@ class Coach {
         n := e["n"]
         if (n < 3 || !IsObject(e["base"]))
             return ""
+        ; LOCKED: when the average error of this round is under 4% of every phase's pull (and the sideways drift is
+        ; tiny) the profile is accurate: stop changing it instead of chasing noise.
+        rel := Max(Abs(e["A"] / n) / Max(e["pa"], 0.5), Abs(e["B"] / n) / Max(e["pb"], 0.5), Abs(e["C"] / n) / Max(e["pc"], 0.5))
+        if (rel < 0.04 && Abs(e["X"] / n) < 0.1) {
+            Coach.Msg := "profile LOCKED for " key ": the last " n " sprays were within " Round(rel * 100, 1) "% - nothing to change"
+            return ""
+        }
         b := e["base"]
         a2 := Coach.Bound(e["pa"] + Coach.Eta * e["A"] / n, b["a"])
         b2 := Coach.Bound(e["pb"] + Coach.Eta * e["B"] / n, b["b"])
@@ -4605,6 +4878,473 @@ class Coach {
         Coach.TestOn := true
         Coach.Msg := "TEST: 1) wiggle the mouse  2) let go completely  3) system ON, aim down sights and hold fire 2 s"
         Toast.Show("info", "HANDS-OFF TEST", "Wiggle the mouse, then let go", "ADS + hold fire for 2 seconds", "Do not touch the mouse")
+        View.Changed()
+    }
+}
+
+; ------------------------------------------------------------------------------
+; 18b. SCREEN COACH  (measures where the view really ends up, phase by phase, no corrections from you needed)
+;     While a burst runs it takes a picture of the top-left of the screen every 250 ms and measures how far the
+;     picture moved between neighbouring pictures (row / column brightness profiles, cross-correlated). The camera
+;     moves by recoil minus the macro's pull, so each movement is the error of that part of the spray: EARLY, MID and
+;     LATE are measured separately and tuned separately. Vertical and sideways are judged independently, an unclear
+;     interval is skipped (never guessed), and once a profile is accurate the coach stops changing it (LOCKED).
+;     F11 (hold ADS, TRAINING on) measures how many screen pixels one mouse count moves the view; until then 0.4
+;     px/count is assumed. Training only (F12): in a match the picture changes for other reasons.
+; ------------------------------------------------------------------------------
+class ScreenCoach {
+    static Frames := []
+    static TickFn := ""
+    static Busy := false
+    static RX := 0
+    static RY := 0
+    static Stp := 6                         ; pixel stride of the analysis: keeps it short (the Lua waits for this script)
+
+    ; Training only: the screen check is wrong in a match (you move, enemies appear, doors open) and the analysis can briefly
+    ; hitch the Lua. It never runs unless you switch TRAINING on (F12) - and it switches itself off after 20 minutes.
+    static Training := false
+    static TrainUntil := 0
+    static ToggleTraining() {
+        ScreenCoach.Training := !ScreenCoach.Training
+        ScreenCoach.TrainUntil := ScreenCoach.Training ? A_TickCount + 1200000 : 0
+        Toast.Show(ScreenCoach.Training ? "ok" : "info", ScreenCoach.Training ? "● TRAINING ON" : "TRAINING OFF"
+            , ScreenCoach.Training ? "Screen coach is measuring your sprays" : "No screenshots are taken"
+            , ScreenCoach.Training ? "Use it in the range only. Off again in 20 min" : "", "")
+        View.Changed()
+    }
+    static Last := "no spray measured yet"
+    ; Why the screen coach is not measuring right now ("" = it is).
+    static Why() {
+        if (ScreenCoach.Training && A_TickCount > ScreenCoach.TrainUntil)
+            ScreenCoach.Training := false
+        if !Recorder.On
+            return "the coach is OFF (press F6)"
+        if !ScreenCoach.Training
+            return "TRAINING is OFF (press F12 in the range)"
+        if !Live.Fresh()
+            return "no live data from G HUB"
+        if !(SlotSync.Anywhere || SlotSync.SiegeActive())
+            return "Siege is not the active window"
+        return ""
+    }
+    static Active() => ScreenCoach.Why() = ""
+
+
+    ; Area compared: left 60% x top 50% of the screen (the gun, ammo counter and compass are outside it).
+    static Region() {
+        w := A_ScreenWidth, h := A_ScreenHeight
+        ScreenCoach.RX := Round(w * 0.05), ScreenCoach.RY := Round(h * 0.05)
+        return [ScreenCoach.RX, ScreenCoach.RY, Round(w * 0.60), Round(h * 0.50)]
+    }
+
+    static Grab(x, y, w, h) {
+        hdc := DllCall("GetDC", "Ptr", 0, "Ptr")
+        mdc := DllCall("CreateCompatibleDC", "Ptr", hdc, "Ptr")
+        bmp := DllCall("CreateCompatibleBitmap", "Ptr", hdc, "Int", w, "Int", h, "Ptr")
+        old := DllCall("SelectObject", "Ptr", mdc, "Ptr", bmp, "Ptr")
+        DllCall("BitBlt", "Ptr", mdc, "Int", 0, "Int", 0, "Int", w, "Int", h, "Ptr", hdc, "Int", x, "Int", y, "UInt", 0x40CC0020)
+        bi := Buffer(40, 0)
+        NumPut("UInt", 40, bi, 0), NumPut("Int", w, bi, 4), NumPut("Int", -h, bi, 8), NumPut("UShort", 1, bi, 12), NumPut("UShort", 32, bi, 14)
+        buf := Buffer(w * h * 4, 0)
+        DllCall("GetDIBits", "Ptr", mdc, "Ptr", bmp, "UInt", 0, "UInt", h, "Ptr", buf, "Ptr", bi, "UInt", 0)
+        DllCall("SelectObject", "Ptr", mdc, "Ptr", old)
+        DllCall("DeleteObject", "Ptr", bmp)
+        DllCall("DeleteDC", "Ptr", mdc)
+        DllCall("ReleaseDC", "Ptr", 0, "Ptr", hdc)
+        return buf
+    }
+
+    ; Mean brightness per column and per row (every Stp-th pixel), without a box around the crosshair.
+    static Profiles(buf, w, h) {
+        stp := ScreenCoach.Stp
+        nx := w // stp, ny := h // stp
+        sx := [], sy := [], cx := [], cy := []
+        loop nx
+            sx.Push(0), cx.Push(0)
+        loop ny
+            sy.Push(0), cy.Push(0)
+        mx := A_ScreenWidth // 2 - ScreenCoach.RX
+        my := A_ScreenHeight // 2 - ScreenCoach.RY
+        iy := 1
+        while (iy <= ny) {
+            y := (iy - 1) * stp
+            row := y * w * 4 + 1                          ; +1 = the green byte
+            ix := 1
+            while (ix <= nx) {
+                x := (ix - 1) * stp
+                if (Abs(x - mx) > 70 || Abs(y - my) > 70) {
+                    L := NumGet(buf, row + x * 4, "UChar")
+                    sx[ix] += L, cx[ix] += 1
+                    sy[iy] += L, cy[iy] += 1
+                }
+                ix += 1
+            }
+            iy += 1
+        }
+        loop nx
+            sx[A_Index] := cx[A_Index] ? sx[A_Index] / cx[A_Index] : 0
+        loop ny
+            sy[A_Index] := cy[A_Index] ? sy[A_Index] / cy[A_Index] : 0
+        return Map("x", sx, "y", sy)
+    }
+
+    ; First difference (kills lighting gradients), normalised to zero mean / unit spread. "" = blank picture.
+    static Prep(arr) {
+        n := arr.Length - 1
+        if (n < 30)
+            return ""
+        dif := []
+        i := 1
+        while (i <= n) {
+            dif.Push(arr[i + 1] - arr[i])
+            i += 1
+        }
+        m := 0
+        for v in dif
+            m += v
+        m /= dif.Length
+        ss := 0
+        for v in dif
+            ss += (v - m) ** 2
+        sd := Sqrt(ss / dif.Length)
+        if (sd < 0.02)
+            return ""
+        out := []
+        for v in dif
+            out.Push((v - m) / sd)
+        return out
+    }
+
+    ; d (in samples) such that b[i + d] ~ a[i]; c = its correlation, sec = the best other peak.
+    static Shift(a, b, maxd) {
+        n := Min(a.Length, b.Length)
+        best := -2, bd := 0
+        cs := []
+        d := -maxd
+        while (d <= maxd) {
+            s := 0, cnt := 0
+            i := Max(1, 1 - d)
+            i1 := Min(n, n - d)
+            while (i <= i1) {
+                s += a[i] * b[i + d]
+                cnt += 1
+                i += 1
+            }
+            c := cnt > n / 2 ? s / cnt : -1
+            cs.Push(c)
+            if (c > best)
+                best := c, bd := d
+            d += 1
+        }
+        sec := -2
+        for k, c in cs {
+            dd := k - maxd - 1
+            if (Abs(dd - bd) > 3 && c > sec)
+                sec := c
+        }
+        return Map("d", bd, "c", best, "sec", sec)
+    }
+
+    static Clear(sh) => (sh["c"] >= 0.4 && sh["c"] - sh["sec"] >= 0.03)
+
+    ; Prepared profiles of one picture, or "" when it is blank.
+    static Prof(buf, w, h) {
+        p := ScreenCoach.Profiles(buf, w, h)
+        px := ScreenCoach.Prep(p["x"]), py := ScreenCoach.Prep(p["y"])
+        return (IsObject(px) && IsObject(py)) ? Map("x", px, "y", py) : ""
+    }
+
+    ; Movement of picture B relative to picture A in pixels: Map(dx, dy) where an unclear axis is "" (and cx / cy hold the
+    ; match scores). Returns "" with the reason in why when neither axis is usable.
+    static Measure(pa, pb, &why) {
+        why := ""
+        if (!IsObject(pa) || !IsObject(pb)) {
+            why := "a picture looks blank to the screen coach (is the game in borderless / windowed mode? exclusive fullscreen captures black)"
+            return ""
+        }
+        sy := ScreenCoach.Shift(pa["y"], pb["y"], Min(60, pa["y"].Length // 2 - 10))
+        sx := ScreenCoach.Shift(pa["x"], pb["x"], Min(60, pa["x"].Length // 2 - 10))
+        st := ScreenCoach.Stp
+        m := Map("dx", ScreenCoach.Clear(sx) ? sx["d"] * st : "", "dy", ScreenCoach.Clear(sy) ? sy["d"] * st : ""
+            , "cx", sx["c"], "cy", sy["c"])
+        if (m["dx"] = "" && m["dy"] = "") {
+            why := Format("the picture match was unclear (vertical {:.2f} vs {:.2f}, horizontal {:.2f} vs {:.2f}; needs 0.40 and a clear gap)"
+                , sy["c"], sy["sec"], sx["c"], sx["sec"])
+            return ""
+        }
+        return m
+    }
+
+    ; ---- during a burst --------------------------------------------------------------------------
+    static OnStart() {
+        ScreenCoach.Frames := []
+        if (IsObject(ScreenCoach.TickFn))
+            SetTimer(ScreenCoach.TickFn, 0)
+        why := ScreenCoach.Why()
+        if (why != "") {
+            ScreenCoach.Last := "idle: " why
+            if Recorder.On {
+                Coach.Msg := "screen coach idle: " why
+                View.Changed()
+            }
+            return
+        }
+        if ScreenCoach.Busy
+            return
+        ScreenCoach.Snap()
+        if !IsObject(ScreenCoach.TickFn)
+            ScreenCoach.TickFn := ObjBindMethod(ScreenCoach, "Snap")
+        SetTimer(ScreenCoach.TickFn, 250)
+    }
+
+    static Snap() {
+        if (ScreenCoach.Frames.Length >= 14) {
+            if IsObject(ScreenCoach.TickFn)
+                SetTimer(ScreenCoach.TickFn, 0)
+            return
+        }
+        r := ScreenCoach.Region()
+        try ScreenCoach.Frames.Push([A_TickCount, ScreenCoach.Grab(r[1], r[2], r[3], r[4])])
+    }
+
+    static OnEnd(e) {
+        if IsObject(ScreenCoach.TickFn)
+            SetTimer(ScreenCoach.TickFn, 0)
+        fr := ScreenCoach.Frames
+        ScreenCoach.Frames := []
+        if (fr.Length = 0 || ScreenCoach.Busy)
+            return
+        py := Float(e.Get("py", 0)), ticks := Integer(e.Get("ticks", 0)), ms := Float(e.Get("ms", 0))
+        if (py <= 0 || ticks < 40) {
+            Coach.Skip("screen check: hold fire a bit longer (the macro must pull for 0.5 s or more)")
+            return
+        }
+        ScreenCoach.Busy := true
+        try {
+            r := ScreenCoach.Region()
+            fr.Push([A_TickCount, ScreenCoach.Grab(r[1], r[2], r[3], r[4])])
+            ScreenCoach.Analyze(fr, r[3], r[4], py, ticks, ms)
+        } catch as err {
+            Diag.Log("screen coach: " err.Message)
+            Coach.Skip("screen check failed: " err.Message)
+        } finally
+            ScreenCoach.Busy := false
+    }
+
+    static Analyze(fr, w, h, py, ticks, ms) {
+        n := fr.Length
+        if (n < 3) {
+            Coach.Skip("screen check: the spray was too short to sample (hold fire for 0.7 s or more)")
+            return
+        }
+        key := Recorder.Key()
+        pa := Live.Get("pull_a", "-"), pb := Live.Get("pull_b", "-"), pc := Live.Get("pull_c", "-"), pxs := Live.Get("pull_x", "-")
+        if (key = "" || !IsNumber(pa) || !IsNumber(pb) || !IsNumber(pc)) {
+            Coach.Skip("screen check: the Lua did not report a profile for this weapon")
+            return
+        }
+        pa += 0, pb += 0, pc += 0, pxs := IsNumber(pxs) ? pxs + 0 : 0
+        t1 := IsNumber(Live.Get("pull_t1", "-")) ? Live.Get("pull_t1", "-") + 0 : 500
+        t2 := IsNumber(Live.Get("pull_t2", "-")) ? Live.Get("pull_t2", "-") + 0 : 900
+        g := Cfg.Data["game"]
+        gain := IsNumber(Live.Get("recoil_gain", "1")) ? Live.Get("recoil_gain", "1") + 0 : 1
+        sy := gain * (Coach.RefDpi * Coach.RefV) / (g["dpi"] * g["sensV"])
+        sxs := gain * (Coach.RefDpi * Coach.RefH) / (g["dpi"] * g["sensH"])
+        cyv := Cfg.Num("coach.pxy", 0.4), cxv := Cfg.Num("coach.pxx", 0.4)
+        prof := []
+        for f in fr
+            prof.Push(ScreenCoach.Prof(f[2], w, h))
+        tpm := ticks / Max(ms, 1)                       ; macro ticks per millisecond
+        t0 := fr[1][1]
+        sumY := [0, 0, 0], tkY := [0, 0, 0], sumX := 0, tkX := 0, used := 0
+        i := 1
+        while (i < n) {
+            m := ScreenCoach.Measure(prof[i], prof[i + 1], &why)
+            if IsObject(m) {
+                dt := fr[i + 1][1] - fr[i][1]
+                mid := (fr[i][1] + fr[i + 1][1]) / 2 - t0
+                ph := mid < t1 ? 1 : mid < t2 ? 2 : 3
+                tk := dt * tpm
+                if (m["dy"] != "")
+                    sumY[ph] += m["dy"], tkY[ph] += tk, used += 1
+                if (m["dx"] != "")
+                    sumX += -m["dx"], tkX += tk                 ; picture moved LEFT = the view drifted RIGHT
+            }
+            i += 1
+        }
+        if (used < 2) {
+            Coach.Skip("screen check: too few clear pictures in that spray (" used " of " (n - 1) ")" (IsSet(why) && why != "" ? ", last: " why : ""))
+            return
+        }
+        pulls := [pa, pb, pc]
+        res := [0, 0, 0]
+        loop 3 {
+            ph := A_Index
+            if (tkY[ph] > 0) {
+                mp := Max(pulls[ph], 0.5)
+                ; picture moved DOWN = the view ended ABOVE where it started = the macro pulled too little in this phase
+                res[ph] := Clamp((sumY[ph] / cyv) / tkY[ph] / sy, -0.5 * mp, 0.5 * mp)
+            }
+        }
+        mX := tkX > 0 ? Clamp(-(sumX / cxv) / tkX / sxs, -3, 3) : 0
+        wacc := 0, wsum := 0
+        loop 3 {
+            if (tkY[A_Index] > 0) {
+                wacc += Abs(res[A_Index]) / Max(pulls[A_Index], 0.5) * tkY[A_Index], wsum += tkY[A_Index]
+            }
+        }
+        acc := wsum ? 100 * (1 - Min(1, wacc / wsum * 2)) : 0
+        Coach.Result := Map("key", key, "acc", acc, "mA", res[1], "mB", res[2], "mC", res[3], "mX", mX
+            , "pa", pa, "pb", pb, "pc", pc, "nA", 1, "nB", 1, "nC", 1, "dur", ms, "py", py, "t", A_Now)
+        Coach.Seen++
+        Coach.Record(key, pa, pb, pc, pxs, t1, t2, res[1], res[2], res[3], mX, acc)
+        ScreenCoach.Last := "measured: EARLY " Coach.Say(res[1], pa) ", MID " Coach.Say(res[2], pb) ", LATE " Coach.Say(res[3], pc) " (" used " clear intervals of " (n - 1) ")"
+        Coach.Msg := "screen coach: EARLY " Coach.Say(res[1], pa) "  ·  MID " Coach.Say(res[2], pb) "  ·  LATE " Coach.Say(res[3], pc)
+            . "  ·  sideways " (Abs(mX) < 0.08 ? "ok" : "drifts " (mX < 0 ? "RIGHT" : "LEFT"))
+            . (Cfg.Get("coach.pxy", "") = "" ? "   (press F11 holding ADS to calibrate px per count)" : "")
+        View.Changed()
+    }
+
+    ; Relative mouse movement in small steps with mouse_event (MOUSEEVENTF_MOVE only). AHK's MouseMove sends an absolute
+    ; position, which a game reading raw input can take as a huge movement. 12 steps of total/12 counts.
+    static Nudge(dx, dy) {
+        loop 12 {
+            DllCall("mouse_event", "UInt", 0x0001, "Int", dx // 12, "Int", dy // 12, "UInt", 0, "UPtr", 0)
+            Sleep(8)
+        }
+    }
+
+    ; F11 while holding the aim button: moves the mouse 300 counts down, then 300 right, and measures how many screen
+    ; pixels the view moved each time. Do it with the sight you normally use (zoom changes the number).
+    static CalibratePx() {
+        if !ScreenCoach.Training {
+            Toast.Show("warn", "CALIBRATE PX", "Switch TRAINING on first (F12)", "Range only: it moves your view", "")
+            return
+        }
+        if !(SlotSync.Anywhere || SlotSync.SiegeActive()) {
+            Toast.Show("warn", "CALIBRATE PX", "Siege must be the active window", "", "")
+            return
+        }
+        if !GetKeyState("RButton", "P") {
+            Toast.Show("warn", "CALIBRATE PX", "Hold RIGHT mouse (aim down sights)", "then press F11 again", "")
+            return
+        }
+        if ScreenCoach.Busy
+            return
+        ScreenCoach.Busy := true
+        try {
+            r := ScreenCoach.Region()
+            res := Map()
+            for axis in ["y", "x"] {
+                pA := ScreenCoach.Prof(ScreenCoach.Grab(r[1], r[2], r[3], r[4]), r[3], r[4])
+                ScreenCoach.Nudge(axis = "x" ? 300 : 0, axis = "y" ? 300 : 0)
+                Sleep(200)
+                pB := ScreenCoach.Prof(ScreenCoach.Grab(r[1], r[2], r[3], r[4]), r[3], r[4])
+                ScreenCoach.Nudge(axis = "x" ? -300 : 0, axis = "y" ? -300 : 0)       ; straight back to where you were
+                Sleep(150)
+                m := ScreenCoach.Measure(pA, pB, &why)
+                v := IsObject(m) ? m[axis = "y" ? "dy" : "dx"] : ""
+                if (v = "") {
+                    Toast.Show("warn", "CALIBRATE PX", "Failed: " (why != "" ? why : "that axis was unclear"), "Aim at a textured wall or the target and try again", "")
+                    return
+                }
+                res[axis] := Abs(v) / 300
+            }
+            if (res["y"] < 0.02 || res["x"] < 0.02) {
+                Toast.Show("warn", "CALIBRATE PX", "The view did not move (is the cursor free in a menu?)", "", "")
+                return
+            }
+            Cfg.Data["coach"]["pxy"] := Round(res["y"], 3)
+            Cfg.Data["coach"]["pxx"] := Round(res["x"], 3)
+            Cfg.Dirty()
+            Toast.Show("ok", "✓ PX PER COUNT", "vertical " Round(res["y"], 3) "   horizontal " Round(res["x"], 3), "The coach now converts errors to pull changes", "")
+        } catch as err {
+            Toast.Show("warn", "CALIBRATE PX", "Failed: " err.Message, "", "")
+        } finally
+            ScreenCoach.Busy := false
+    }
+}
+
+; ------------------------------------------------------------------------------
+; 18c. SIGHT TRACE  (follows the pink sight on screen during a spray; light enough to leave on in a match)
+;     Every 50 ms while a burst is running it scans the middle of the screen for pink pixels and records
+;     where their centre is. At the end it reports how far that centre moved. It only reports: nothing is
+;     learned from it yet (we first need to see what the number looks like for a good and a bad spray).
+;     Runs while the coach (F6) is on.
+; ------------------------------------------------------------------------------
+class SightTrace {
+    static Samples := []
+    static Fn := ""
+    static T0 := 0
+    static Busy := false
+
+    static Region() {
+        w := A_ScreenWidth, h := A_ScreenHeight
+        return [Round(w * 0.25), Round(h * 0.25), Round(w * 0.50), Round(h * 0.50)]
+    }
+
+    ; Pink = strong red and blue, clearly more red than green (works for hot pink and soft pink).
+    static IsPink(r, g, b) => (r > 150 && b > 100 && r - g > 45 && b - g > 5)
+
+    static Sample() {
+        if SightTrace.Busy
+            return
+        SightTrace.Busy := true
+        try {
+            rg := SightTrace.Region()
+            buf := ScreenCoach.Grab(rg[1], rg[2], rg[3], rg[4])
+            w := rg[3], h := rg[4]
+            n := 0, sx := 0, sy := 0
+            y := 0
+            while (y < h) {
+                row := y * w * 4
+                x := 0
+                while (x < w) {
+                    o := row + x * 4
+                    if SightTrace.IsPink(NumGet(buf, o + 2, "UChar"), NumGet(buf, o + 1, "UChar"), NumGet(buf, o, "UChar"))
+                        n += 1, sx += x, sy += y
+                    x += 4
+                }
+                y += 4
+            }
+            if (n >= 20)
+                SightTrace.Samples.Push([A_TickCount - SightTrace.T0, sx / n + rg[1], sy / n + rg[2], n])
+        } finally
+            SightTrace.Busy := false
+    }
+
+    static OnStart() {
+        SightTrace.Samples := []
+        if (!Recorder.On || !Live.Fresh() || !(SlotSync.Anywhere || SlotSync.SiegeActive()))
+            return
+        SightTrace.T0 := A_TickCount
+        if !IsObject(SightTrace.Fn)
+            SightTrace.Fn := ObjBindMethod(SightTrace, "Sample")
+        SetTimer(SightTrace.Fn, 50)
+    }
+
+    static OnEnd(e) {
+        if IsObject(SightTrace.Fn)
+            SetTimer(SightTrace.Fn, 0)
+        sm := SightTrace.Samples
+        if (sm.Length < 6) {
+            if (Recorder.On && Live.Fresh())
+                Diag.Log("sight trace: no pink sight found (" sm.Length " samples)")
+            return
+        }
+        k := Min(3, sm.Length // 2)
+        x0 := 0, y0 := 0, x1 := 0, y1 := 0, ymax := -1e9, ymin := 1e9
+        loop k {
+            x0 += sm[A_Index][2] / k, y0 += sm[A_Index][3] / k
+            x1 += sm[sm.Length - A_Index + 1][2] / k, y1 += sm[sm.Length - A_Index + 1][3] / k
+        }
+        for q in sm
+            ymax := Max(ymax, q[3]), ymin := Min(ymin, q[3])
+        dy := Round(y1 - y0), dx := Round(x1 - x0)
+        msg := Format("sight trace: pink sight moved {} px {} and {} px {} over the spray  (range {} px, {} samples)"
+            , Abs(dy), dy < 0 ? "UP" : "DOWN", Abs(dx), dx < 0 ? "LEFT" : "RIGHT", Round(ymax - ymin), sm.Length)
+        Diag.Log(msg)
+        Coach.Msg := msg
         View.Changed()
     }
 }
@@ -4674,7 +5414,7 @@ class Diagnostics {
         if (hint != "")
             t .= "  ⚠ " hint "`n"
         t .= Format("{:-22s}{:-18s}{}", "  RECOIL COACH", Recorder.On ? "▶ ACTIVE" : "○ DISABLED", "scored " (Coach.Seen - Coach.Skipped) ", skipped " Coach.Skipped ", mouse test: " (Coach.Mode() != "" ? Coach.Mode() : "not done") "  (" Coach.Msg ")") "`n"
-        t .= Diagnostics.Mod("RECOIL TUNE", "m_tune", g("tune", "0") = "1" ? "step " g("tune_step", "?") " " g("tune_name", "") : "")
+        t .= Format("{:-22s}{:-18s}{}", "  SCREEN COACH", ScreenCoach.Training ? "▶ TRAINING" : "○ TRAINING OFF", ScreenCoach.Last " | px/count " Cfg.Get("coach.pxy", "not calibrated (F11)")) "`n"
         t .= Diagnostics.Mod("DEBUG LOG", "m_debug")
         t .= Format("{:-22s}{:-18s}{}", "LOADOUT MANAGER", "✓ ENABLED", "loadout " g("loadout", "-") " (" g("loadout_n", "0") " saved), " g("fav_n", "?") " favourites") "`n"
         lk := Live.Status
@@ -5198,15 +5938,19 @@ class View {
 ; ------------------------------------------------------------------------------
 Db.Init()
 Cfg.Load()
+Cfg.SeedStandard()
 Ui.Recalc()
 DbgListener.Init()
 Hk.RegisterAll()
+try Hotkey("F11", (*) => ScreenCoach.CalibratePx(), "On")
+try Hotkey("F12", (*) => ScreenCoach.ToggleTraining(), "On")                   ; screen coach only works while TRAINING is on        ; measures px per mouse count for the screen coach
 View.Start()
 SlotSync.Set("PRIMARY", false)                       ; baseline: lock key OFF = primary
 SetTimer(() => Live.Poll(), 15)                  ; receives packets (DBWIN handshake needs quick service)
 SetTimer(() => Live.Tick(), 1000)                ; link health
 SetTimer(() => Hud.KeepOnTop(), 2000)            ; borderless games can steal the Z-order
 SetTimer(() => Anim.Tick(), 700)                 ; "live" pulse
+SetTimer(() => AutoCal.Tick(), 8000)               ; finds the operator grid by itself while Siege is in front
 SetTimer(() => (Center.Visible && (Center.Cur = "HOME" || Center.Cur = "DIAGNOSTICS") ? Center.RefreshPage() : 0), 1000)
 OnExit((*) => Cfg.SaveNow())
 if Cfg.Get("coach.on", 0)
@@ -5408,7 +6152,7 @@ Ram,Deimos,Rauora,Solid Snake,,,
 [OP defenders]
 Sentry|COMMANDO 9,M870,TCSG12|C75 AUTO,SUPER SHORTY|COMMANDO 9|C75 AUTO|0
 Smoke|FMG-9,M590A1|P226 MK 25,SMG-11|FMG-9|P226 MK 25|0
-Mute|MP5K,M590A1|P226 MK 25,SMG-11|MP5K|P226 MK 25|0
+Mute|MP5K,M590A1|P226 MK 25,SMG-11|M590A1|SMG-11|0
 Castle|UMP45,M1014|5.7 USG,SUPER SHORTY,M45 MEUSOC|UMP45|5.7 USG|0
 Pulse|M1014,UMP45|REAPER MK2,M45 MEUSOC,5.7 USG|UMP45|REAPER MK2|0
 Doc|SG-CQB,MP5,P90|P9,LFP586,BAILIFF 410|MP5|P9|0
@@ -5430,7 +6174,7 @@ Alibi|MX4 STORM,ACS12|KERATOS .357,BAILIFF 410|MX4 STORM|KERATOS .357|0
 Clash||SUPER SHORTY,SPSMG9,P-10C||SUPER SHORTY|0
 Kaid|AUG A3,TCSG12|.44 MAG SEMI-AUTO,LFP586|AUG A3|.44 MAG SEMI-AUTO|0
 Mozzie|COMMANDO 9,P10 RONI|SDP 9MM,SUPER SHORTY|COMMANDO 9|SDP 9MM|0
-Warden|M590A1,MPX|P-10C,SMG-12|MPX|P-10C|0
+Warden|M590A1,MPX|P-10C,SMG-12|M590A1|SMG-12|0
 Goyo|VECTOR .45 ACP,TCSG12|P229|VECTOR .45 ACP|P229|0
 Wamai|AUG A2,MP5K|KERATOS .357,P12,SUPER SHORTY|AUG A2|KERATOS .357|0
 Oryx|T-5 SMG,SPAS-12|BAILIFF 410,USP40,REAPER MK2|T-5 SMG|BAILIFF 410|0

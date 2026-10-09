@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SPM.App.HudWindow"
+        Width="270" SizeToContent="Height" CanResize="False"
+        SystemDecorations="None" Topmost="True" ShowInTaskbar="False" ShowActivated="False"
+        Background="Transparent" TransparencyLevelHint="Transparent" Title="SPM HUD">
+  <Border Background="#EE101319" CornerRadius="10" BorderBrush="#232834" BorderThickness="1" Padding="16,12">
+    <StackPanel Spacing="2">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="SIEGE PROFILE MANAGER" FontSize="9" FontWeight="SemiBold" Foreground="#596275" />
+        <TextBlock Name="Dot" Grid.Column="1" Text="●" FontSize="11" Foreground="#4ADE9C" />
+      </Grid>
+      <TextBlock Name="Op" FontSize="22" FontWeight="Bold" Foreground="#E9EDF3" />
+      <TextBlock Name="Side" FontSize="11" Foreground="#4CC9E8" />
+      <TextBlock Name="Prim" FontSize="13" Foreground="#E9EDF3" Margin="0,8,0,0" />
+      <TextBlock Name="PrimAtt" FontSize="11" Foreground="#8D96A8" />
+      <TextBlock Name="Sec" FontSize="13" Foreground="#E9EDF3" Margin="0,6,0,0" />
+      <TextBlock Name="SecAtt" FontSize="11" Foreground="#8D96A8" />
+      <TextBlock Name="Status" FontSize="11" Foreground="#8D96A8" Margin="0,8,0,0" TextWrapping="Wrap" />
+      <TextBlock Name="CoachLine" FontSize="11" Foreground="#F2B84B" TextWrapping="Wrap" IsVisible="False" />
+    </StackPanel>
+  </Border>
+</Window>
