@@ -53,7 +53,7 @@ public partial class MainWindow : Window
         Check("SlotChk", v => _app.Store.Config.SlotSyncEnabled = v);
         Check("SlotAnyChk", v => _app.Store.Config.SlotSyncAnywhere = v);
 
-        Closing += (_, e) => { e.Cancel = true; Hide(); };           // the app keeps running (HUD + link); F8 / tray icon reopens
+        Closing += (_, e) => { e.Cancel = true; Hide(); };           // the app keeps running (HUD + link); F7 / tray icon reopens
     }
 
     void Hook(NumericUpDown box, Action<double> set) =>

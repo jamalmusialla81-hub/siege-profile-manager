@@ -128,7 +128,7 @@ public partial class App : Application
                     }
                 System.Runtime.InteropServices.Marshal.Copy(px, 0, fb.Address, px.Length);
             }
-            var open = new NativeMenuItem("Open  (F8)");
+            var open = new NativeMenuItem("Open  (F7)");
             open.Click += (_, _) => { _main.Show(); _main.Activate(); };
             var exit = new NativeMenuItem("Exit");
             exit.Click += (_, _) => Quit();

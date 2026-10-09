@@ -20,7 +20,7 @@ internal static class Program
             if (!first)
             {
                 ShowSignal.Set();                                       // already running (probably in the tray): ask it to open its window
-                if (OperatingSystem.IsWindows()) MessageBoxW(IntPtr.Zero, "Siege Profile Manager is already running (look for its icon in the system tray, or press F8). Opening its window now.", "Siege Profile Manager", 0x40);
+                if (OperatingSystem.IsWindows()) MessageBoxW(IntPtr.Zero, "Siege Profile Manager is already running (look for its icon in the system tray, or press F7). Opening its window now.", "Siege Profile Manager", 0x40);
                 return 0;
             }
             return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);

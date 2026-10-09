@@ -186,7 +186,7 @@
               <CheckBox Name="HudChk" Content="Show the HUD overlay  (F9)" />
               <CheckBox Name="SlotChk" Content="Follow the 1 / 2 weapon keys (needed for secondary-weapon recoil)" />
               <CheckBox Name="SlotAnyChk" Content="React to 1 / 2 in any window (for testing without Siege)" />
-              <TextBlock Text="F8 shows or hides this window. The HUD never takes mouse clicks." Classes="dim" FontSize="12" />
+              <TextBlock Text="F7 shows or hides this window. The HUD never takes mouse clicks." Classes="dim" FontSize="12" />
             </StackPanel>
           </Border>
         </StackPanel>

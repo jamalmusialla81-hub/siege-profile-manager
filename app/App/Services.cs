@@ -61,7 +61,7 @@ public sealed class DbwinListener : IDisposable
 }
 
 /// <summary>
-/// Global keys: F8 window, F9 HUD, F10-F12 coach, and the 1 / 2 weapon keys that drive the Lua's slot sync (Scroll Lock).
+/// Global keys: F7 window, F9 HUD, F10-F12 coach, and the 1 / 2 weapon keys that drive the Lua's slot sync (Scroll Lock).
 /// The hook lives on its own thread and its callback only records the key and queues it: Windows waits for a low-level
 /// hook before delivering the key to anything, so any slow work in it (foreground check, sending Scroll Lock) lags the
 /// whole keyboard. A worker thread does that work.
@@ -148,7 +148,7 @@ public sealed class HookService : IDisposable, IMoveKeys
                     if (down)
                     {
                         if (vk == Native.VK_SCROLL) _lockOn = !_lockOn;                 // you pressed the real Scroll Lock key
-                        else if (vk is 0x77 or 0x78 or 0x79 or 0x7A or 0x7B or 0x31 or 0x32) _queue.TryAdd(vk);
+                        else if (vk is 0x76 or 0x78 or 0x79 or 0x7A or 0x7B or 0x31 or 0x32) _queue.TryAdd(vk);
                     }
                 }
             }
@@ -166,7 +166,7 @@ public sealed class HookService : IDisposable, IMoveKeys
             {
                 switch (vk)
                 {
-                    case 0x77: Post(ToggleWindow); break;                               // F8
+                    case 0x76: Post(ToggleWindow); break;                               // F7
                     case 0x78: Post(ToggleHud); break;                                  // F9
                     case 0x79: Post(CalFinish); break;                                  // F10
                     case 0x7A: Post(CalBegin); break;                                   // F11
