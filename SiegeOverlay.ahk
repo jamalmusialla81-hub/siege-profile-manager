@@ -646,6 +646,21 @@ class Cfg {
     }
 
     ; --- change tracking ------------------------------------------------------
+    ; Standard weapon choices, written ONCE into the saved loadouts (a saved loadout beats the built-in default). After that the
+    ; app remembers whatever you pick in game, as usual. Add more operators here to seed them the same way.
+    static SeedStandard() {
+        if (Cfg.Get("prefs.standardSeed", 0) >= 1)
+            return
+        for name, picks in Map("Mute", ["M590A1", "SMG-11"], "Warden", ["M590A1", "SMG-12"]) {
+            lo := Map()
+            lo["primary"] := LoadoutMgr.Fix(name, "primary", Map("weapon", picks[1]))
+            lo["secondary"] := LoadoutMgr.Fix(name, "secondary", Map("weapon", picks[2]))
+            Cfg.SetSaved(name, lo, false)
+        }
+        Cfg.Data["prefs"]["standardSeed"] := 1
+        Cfg.Dirty()
+    }
+
     static Dirty() {
         Cfg.Ver++
         if !IsObject(Cfg.Fn)
@@ -5899,6 +5914,7 @@ class View {
 ; ------------------------------------------------------------------------------
 Db.Init()
 Cfg.Load()
+Cfg.SeedStandard()
 Ui.Recalc()
 DbgListener.Init()
 Hk.RegisterAll()
@@ -6112,7 +6128,7 @@ Ram,Deimos,Rauora,Solid Snake,,,
 [OP defenders]
 Sentry|COMMANDO 9,M870,TCSG12|C75 AUTO,SUPER SHORTY|COMMANDO 9|C75 AUTO|0
 Smoke|FMG-9,M590A1|P226 MK 25,SMG-11|FMG-9|P226 MK 25|0
-Mute|MP5K,M590A1|P226 MK 25,SMG-11|MP5K|P226 MK 25|0
+Mute|MP5K,M590A1|P226 MK 25,SMG-11|M590A1|SMG-11|0
 Castle|UMP45,M1014|5.7 USG,SUPER SHORTY,M45 MEUSOC|UMP45|5.7 USG|0
 Pulse|M1014,UMP45|REAPER MK2,M45 MEUSOC,5.7 USG|UMP45|REAPER MK2|0
 Doc|SG-CQB,MP5,P90|P9,LFP586,BAILIFF 410|MP5|P9|0
@@ -6134,7 +6150,7 @@ Alibi|MX4 STORM,ACS12|KERATOS .357,BAILIFF 410|MX4 STORM|KERATOS .357|0
 Clash||SUPER SHORTY,SPSMG9,P-10C||SUPER SHORTY|0
 Kaid|AUG A3,TCSG12|.44 MAG SEMI-AUTO,LFP586|AUG A3|.44 MAG SEMI-AUTO|0
 Mozzie|COMMANDO 9,P10 RONI|SDP 9MM,SUPER SHORTY|COMMANDO 9|SDP 9MM|0
-Warden|M590A1,MPX|P-10C,SMG-12|MPX|P-10C|0
+Warden|M590A1,MPX|P-10C,SMG-12|M590A1|SMG-12|0
 Goyo|VECTOR .45 ACP,TCSG12|P229|VECTOR .45 ACP|P229|0
 Wamai|AUG A2,MP5K|KERATOS .357,P12,SUPER SHORTY|AUG A2|KERATOS .357|0
 Oryx|T-5 SMG,SPAS-12|BAILIFF 410,USP40,REAPER MK2|T-5 SMG|BAILIFF 410|0
