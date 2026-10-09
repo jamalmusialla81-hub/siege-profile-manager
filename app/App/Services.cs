@@ -87,6 +87,12 @@ public sealed class HookService : IDisposable, IMoveKeys
 
     public event Action? ToggleWindow;
     public event Action? ToggleHud;
+    /// <summary>What the Lua reports (packets accepted so far, active slot). Lets the app notice when the Lua's slot was reset
+    /// (new operator, loadout change) while Scroll Lock stayed where it was: then pressing 2 would not make an edge for it.</summary>
+    public Func<(int packets, string slot)>? LuaView;
+    long _pressMs;
+    int _mismatchSince = -1;
+
     public event Action? SlotChanged;
     public event Action? ToggleTraining;     // F12
     public event Action? CalBegin;           // F11
@@ -159,9 +165,14 @@ public sealed class HookService : IDisposable, IMoveKeys
 
     void Work()
     {
-        foreach (var vk in _queue.GetConsumingEnumerable())
+        while (!_stop)
         {
-            if (_stop) break;
+            if (!_queue.TryTake(out int vk, 250))
+            {
+                if (_queue.IsAddingCompleted) break;
+                try { Reconcile(); } catch { }
+                continue;
+            }
             try
             {
                 switch (vk)
@@ -177,7 +188,8 @@ public sealed class HookService : IDisposable, IMoveKeys
                         {
                             bool second = vk == 0x32;
                             _slot = second ? "SECONDARY" : "PRIMARY";
-                            if (_lockOn != second) { _lockOn = second; Native.PressScrollLock(); }
+                            _pressMs = Clock.Ms; _mismatchSince = -1;
+                            SetLock(second);
                             Post(SlotChanged);
                         }
                         break;
@@ -185,6 +197,28 @@ public sealed class HookService : IDisposable, IMoveKeys
             }
             catch { }
         }
+    }
+
+    void SetLock(bool on)
+    {
+        if (_lockOn != on) { _lockOn = on; Native.PressScrollLock(); }
+    }
+
+    /// <summary>If the Lua is on another slot than the one we think (and stays there over two of its packets, which each come
+    /// after it read Scroll Lock), the Lua was reset: follow it and put Scroll Lock where it matches, so the next 1 / 2 is a real edge.</summary>
+    void Reconcile()
+    {
+        var view = LuaView?.Invoke();
+        if (view == null || !_store.Config.SlotSyncEnabled) return;
+        var (packets, slot) = view.Value;
+        slot = slot.ToUpperInvariant();
+        if (slot is not ("PRIMARY" or "SECONDARY") || slot == _slot || Clock.Ms - _pressMs < 400) { _mismatchSince = -1; return; }
+        if (_mismatchSince < 0) { _mismatchSince = packets; return; }
+        if (packets - _mismatchSince < 2) return;
+        _mismatchSince = -1;
+        _slot = slot;
+        SetLock(slot == "SECONDARY");
+        Post(SlotChanged);
     }
 
     public void Dispose()

@@ -48,7 +48,7 @@ public partial class App : Application
             Dbwin.Message += (_, text) => Dispatcher.UIThread.Post(() => Live.Ingest(text));
             Dbwin.Start();
 
-            Hooks = new HookService(Store);
+            Hooks = new HookService(Store) { LuaView = () => (Live.Ok, Live.Get("slot", "")) };
             Raw.Start();
             Coach = new SPM.Core.Coach.CoachService(Store, Live)
             {
