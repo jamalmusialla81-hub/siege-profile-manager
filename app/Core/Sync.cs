@@ -11,6 +11,8 @@ public sealed class SyncService
     readonly ConfigStore _store;
     readonly LiveState _live;
     string _lastBody = "";
+    /// <summary>Operators whose loadout was edited in the app: the Lua's old loadout must not overwrite the edit before the new script is pasted.</summary>
+    public HashSet<string> Held { get; } = new();
     public string LastError { get; private set; } = "";
     public DateTime LastWriteTime { get; private set; } = DateTime.MinValue;
 
@@ -48,6 +50,23 @@ public sealed class SyncService
         return Pending ? SyncState.Pending : SyncState.Ok;
     }
 
+    /// <summary>Saves a loadout chosen in the app (reaches the Lua when the new script is pasted).</summary>
+    public void EditLoadout(string op, Loadout lo)
+    {
+        C.Saved[op] = lo;
+        Held.Add(op);
+        _store.Touch();
+    }
+
+    public void SetFavourite(string op, bool on)
+    {
+        bool has = C.Favorites.Contains(op);
+        if (on && !has) C.Favorites.Add(op);
+        else if (!on && has) C.Favorites.Remove(op);
+        else return;
+        _store.Touch();
+    }
+
     public string StateText() => State() switch
     {
         SyncState.Ok => "In sync: the Lua in G HUB has your latest config",
@@ -77,7 +96,10 @@ public sealed class SyncService
         {
             bool changed = false;
             if (C.Side != side || C.Operator != op) { C.Side = side; C.Operator = op; changed = true; }
-            if (!C.Saved.TryGetValue(op, out var cur) || !cur.Same(lo)) { C.Saved[op] = lo; changed = true; }
+            if (State() == SyncState.Ok) Held.Clear();
+            if (C.StartOperator != "" && C.StartOperator == op) { C.StartOperator = ""; changed = true; }
+            if (Held.Contains(op) && C.Saved.TryGetValue(op, out var held) && held.Same(lo)) Held.Remove(op);
+            if (!Held.Contains(op) && (!C.Saved.TryGetValue(op, out var cur) || !cur.Same(lo))) { C.Saved[op] = lo; changed = true; }
             // grids the Lua already has (calibrated in game before this app existed)
             foreach (var sd in new[] { "attackers", "defenders" })
             {

@@ -58,8 +58,11 @@ public static class LuaBlock
         t.Append($"        barrel = {List(Chain(c.Prefs.Barrel, BarrelChain))},\n");
         t.Append($"        grip = {List(Chain(c.Prefs.Grip, GripChain))},\n");
         t.Append("    },\n");
-        t.Append($"    side = {Q(c.Side == "defenders" ? "defenders" : "attackers")},\n");
-        if (c.Operator != "") t.Append($"    operator = {Q(c.Operator)},\n");
+        bool start = c.StartOperator != "";
+        var sideOut = start ? c.StartSide : c.Side;
+        t.Append($"    side = {Q(sideOut == "defenders" ? "defenders" : "attackers")},\n");
+        var opOut = start ? c.StartOperator : c.Operator;
+        if (opOut != "") t.Append($"    operator = {Q(opOut)},\n");
         t.Append($"    favorites = {List(c.Favorites)},\n");
         t.Append("    saved = {\n");
         foreach (var kv in c.Saved.OrderBy(k => k.Key, o))

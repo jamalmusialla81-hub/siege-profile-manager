@@ -38,6 +38,10 @@ public static class Report
         t.Append(Row("RESOLUTION", $"{cfg.Game.ResW} x {cfg.Game.ResH}   dpi {cfg.Game.Dpi}   sens {cfg.Game.SensH}/{cfg.Game.SensV}"));
         t.Append(Row("SAVED LOADOUTS", cfg.Saved.Count + " operators, " + cfg.Favorites.Count + " favourites, " + cfg.Learned.Count + " learned profiles"));
         t.Append(Row("CALIBRATION GRIDS", string.Join(", ", cfg.Calibration.Keys.DefaultIfEmpty("none"))));
+        t.Append(Row("COACH", (app.Coach.Training ? "TRAINING ON" : "training off") + $"  measured {app.Coach.Measured}, skipped {app.Coach.Skipped}"));
+        t.Append(Row("  LAST", app.Coach.Last));
+        t.Append(Row("  STATUS", app.Coach.Status));
+        t.Append(Row("  PX PER COUNT", app.Coach.Calibrated ? $"vertical {cfg.Coach.PxY}, horizontal {cfg.Coach.PxX}" : "not calibrated (assuming 0.4)"));
         t.Append(Row("FOREGROUND", Native.ForegroundExe() == "" ? "-" : Native.ForegroundExe()));
         t.Append(Row("LAST ERROR", new[] { app.Store.LastError, sync.LastError }.FirstOrDefault(e => e != "") ?? "none"));
         t.Append("\nLOG\n");

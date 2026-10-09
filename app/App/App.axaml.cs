@@ -17,6 +17,8 @@ public partial class App : Application
     public SyncService Sync { get; private set; } = null!;
     public DbwinListener Dbwin { get; } = new();
     public HookService Hooks { get; private set; } = null!;
+    public SPM.Core.Coach.CoachService Coach { get; private set; } = null!;
+    public RawMouse Raw { get; } = new();
     MainWindow _main = null!;
     HudWindow _hud = null!;
 
@@ -36,11 +38,22 @@ public partial class App : Application
             Dbwin.Start();
 
             Hooks = new HookService(Store);
+            Raw.Start();
+            Coach = new SPM.Core.Coach.CoachService(Store, Live)
+            {
+                ScreenSize = ScreenCapture.PrimarySize,
+                Grab = ScreenCapture.Grab,
+                Allowed = Hooks.SiegeActive,
+                Raw = Raw,
+            };
             _main = new MainWindow(this);
             _hud = new HudWindow(this);
             Hooks.ToggleWindow += ToggleMain;
             Hooks.ToggleHud += () => { Store.Config.HudVisible = !Store.Config.HudVisible; Store.Touch(); ApplyHud(); };
             Hooks.SlotChanged += () => _hud.Refresh();
+            Hooks.ToggleTraining += () => Coach.SetTraining(!Coach.Training);
+            Hooks.CalBegin += () => { var m = Coach.BeginCalibration(); if (m != "") Live.AddLog("calibration: " + m); };
+            Hooks.CalFinish += () => Coach.FinishCalibration();
             Hooks.Start();
 
             if (Store.ImportedFromAhk) Live.AddLog("Imported your settings from the old AutoHotkey config");
@@ -63,7 +76,7 @@ public partial class App : Application
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             timer.Tick += (_, _) => { _main.Refresh(); _hud.Refresh(); };
             timer.Start();
-            desktop.Exit += (_, _) => { Hooks.Dispose(); Dbwin.Dispose(); Store.Dispose(); };
+            desktop.Exit += (_, _) => { Hooks.Dispose(); Dbwin.Dispose(); Raw.Dispose(); Store.Dispose(); };
         }
         base.OnFrameworkInitializationCompleted();
     }

@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="SPM.App.MainWindow"
-        Title="Siege Profile Manager" Width="980" Height="660" MinWidth="860" MinHeight="560"
+        Title="Siege Profile Manager" Width="1260" Height="740" MinWidth="1120" MinHeight="660"
         Background="#0C0E13" WindowStartupLocation="CenterScreen">
   <Grid ColumnDefinitions="200,*">
     <Border Background="#13161D">
@@ -13,6 +13,8 @@
         <Button DockPanel.Dock="Bottom" Name="QuitBtn" Classes="sec" Content="Quit app" HorizontalAlignment="Stretch" />
         <StackPanel>
           <Button Name="NavHome" Classes="nav on" Content="Home" />
+          <Button Name="NavOps" Classes="nav" Content="Operators" />
+          <Button Name="NavCoach" Classes="nav" Content="Coach" />
           <Button Name="NavSettings" Classes="nav" Content="Settings" />
           <Button Name="NavDiag" Classes="nav" Content="Diagnostics" />
         </StackPanel>
@@ -56,6 +58,75 @@
               <ListBox Name="RecentList" Background="Transparent" MaxHeight="220" />
             </StackPanel>
           </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- OPERATORS -->
+      <Grid Name="PageOps" IsVisible="False" ColumnDefinitions="*,330">
+        <StackPanel>
+          <TextBlock Text="Operators" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" Margin="0,0,0,12" />
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+            <Button Name="SideAtk" Classes="sec on" Content="Attack" />
+            <Button Name="SideDef" Classes="sec" Content="Defence" />
+          </StackPanel>
+          <UniformGrid Name="OpGrid" Rows="7" Columns="7" Width="640" Height="480" HorizontalAlignment="Left" />
+          <TextBlock Text="Bright name = the operator G HUB has right now.   ★ = favourite" Classes="dim" FontSize="11" Margin="0,8,0,0" />
+        </StackPanel>
+        <Border Grid.Column="1" Classes="card" Margin="16,0,0,0" VerticalAlignment="Top">
+          <StackPanel Spacing="8">
+            <TextBlock Text="SELECTED" Classes="h" />
+            <TextBlock Name="OpName" FontSize="24" FontWeight="Bold" Foreground="#E9EDF3" />
+            <CheckBox Name="FavChk" Content="Favourite" />
+            <TextBlock Text="Primary" Classes="dim" Margin="0,6,0,0" /><ComboBox Name="PrimBox" HorizontalAlignment="Stretch" />
+            <Grid ColumnDefinitions="*,*,*"><ComboBox Name="PScopeBox" Margin="0,0,4,0" HorizontalAlignment="Stretch" /><ComboBox Name="PBarrelBox" Grid.Column="1" Margin="0,0,4,0" HorizontalAlignment="Stretch" /><ComboBox Name="PGripBox" Grid.Column="2" HorizontalAlignment="Stretch" /></Grid>
+            <TextBlock Text="Secondary" Classes="dim" Margin="0,6,0,0" /><ComboBox Name="SecBox" HorizontalAlignment="Stretch" />
+            <Grid ColumnDefinitions="*,*,*"><ComboBox Name="SScopeBox" Margin="0,0,4,0" HorizontalAlignment="Stretch" /><ComboBox Name="SBarrelBox" Grid.Column="1" Margin="0,0,4,0" HorizontalAlignment="Stretch" /><ComboBox Name="SGripBox" Grid.Column="2" HorizontalAlignment="Stretch" /></Grid>
+            <Button Name="StartOpBtn" Classes="sec" Content="Use as starting operator" Margin="0,10,0,0" />
+            <TextBlock Name="OpsNote" Classes="dim" FontSize="11" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <!-- COACH -->
+      <ScrollViewer Name="PageCoach" IsVisible="False">
+        <StackPanel>
+          <TextBlock Text="Coach" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" Margin="0,0,0,16" />
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="TRAINING  (shooting range only)" Classes="h" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Name="TrainBtn" Classes="primary" Content="Start training  (F12)" />
+                <TextBlock Name="TrainText" VerticalAlignment="Center" Foreground="#E9EDF3" />
+              </StackPanel>
+              <TextBlock Name="CoachStatus" Classes="dim" FontSize="12" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="SCREEN SCALE  (pixels the view moves per mouse count)" Classes="h" />
+              <TextBlock Name="PxText" Foreground="#E9EDF3" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Name="CalBeginBtn" Classes="sec" Content="1. Start  (F11)" />
+                <Button Name="CalFinishBtn" Classes="sec" Content="2. Finish  (F10)" />
+              </StackPanel>
+              <TextBlock Text="Press Start in the game, aim at a textured wall holding aim, move your mouse slowly down 1-2 cm, then press Finish. It only reads your mouse, it never moves it." Classes="dim" FontSize="11" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="6">
+              <TextBlock Text="LAST SPRAY" Classes="h" />
+              <TextBlock Name="LastText" Foreground="#E9EDF3" TextWrapping="Wrap" />
+              <TextBlock Name="AccText" FontSize="28" FontWeight="Bold" Foreground="#4CC9E8" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="LEARNED PER LOADOUT" Classes="h" />
+              <ListBox Name="CoachList" Background="Transparent" MaxHeight="220" />
+              <Button Name="ForgetBtn" Classes="sec" Content="Forget selected" HorizontalAlignment="Left" />
+            </StackPanel>
+          </Border>
+          <TextBlock TextWrapping="Wrap" Classes="dim" FontSize="12" Text="How it works: while you spray in the range the app takes a picture of the top-left of the screen every quarter second and measures how far the view moved between pictures. Recoil minus your macro's pull is what moves the view, so that movement is the error, measured separately for the early, mid and late part of the spray. After 3 sprays it saves an improved profile for that exact loadout into your Lua file (then paste the script into G HUB). Once a profile is within 4% it LOCKS and stops changing. It never runs outside Training." />
         </StackPanel>
       </ScrollViewer>
 

@@ -71,6 +71,9 @@ public sealed class HookService : IDisposable
     public event Action? ToggleWindow;
     public event Action? ToggleHud;
     public event Action? SlotChanged;
+    public event Action? ToggleTraining;     // F12
+    public event Action? CalBegin;           // F11
+    public event Action? CalFinish;          // F10
 
     public HookService(ConfigStore store)
     {
@@ -105,6 +108,9 @@ public sealed class HookService : IDisposable
                 {
                     if (vk == 0x77) ToggleWindow?.Invoke();                                        // F8
                     else if (vk == 0x78) ToggleHud?.Invoke();                                      // F9
+                    else if (vk == 0x79) CalFinish?.Invoke();                                      // F10
+                    else if (vk == 0x7A) CalBegin?.Invoke();                                       // F11
+                    else if (vk == 0x7B) ToggleTraining?.Invoke();                                 // F12
                     else if ((vk == 0x31 || vk == 0x32) && _store.Config.SlotSyncEnabled && SiegeActive())
                     {
                         Slot = vk == 0x32 ? "SECONDARY" : "PRIMARY";

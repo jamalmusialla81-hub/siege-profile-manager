@@ -62,6 +62,37 @@ public sealed class KeyBind
     public int Button { get; set; }
 }
 
+/// <summary>What the coach has seen and learned for one exact loadout key.</summary>
+public sealed class CoachEntry
+{
+    public string Sig { get; set; } = "";
+    public int N { get; set; }
+    public double A { get; set; }
+    public double B { get; set; }
+    public double C { get; set; }
+    public double X { get; set; }
+    public double Pa { get; set; }
+    public double Pb { get; set; }
+    public double Pc { get; set; }
+    public double Px { get; set; }
+    public double T1 { get; set; } = 450;
+    public double T2 { get; set; } = 900;
+    public double BaseA { get; set; } = -1;
+    public double BaseB { get; set; }
+    public double BaseC { get; set; }
+    public double BaseX { get; set; }
+    public List<int> Acc { get; set; } = new();
+    public bool Locked { get; set; }
+    public string Updated { get; set; } = "";
+}
+
+public sealed class CoachSettings
+{
+    public double PxY { get; set; }          // screen pixels the view moves per mouse count, vertical (0 = not calibrated)
+    public double PxX { get; set; }
+    public Dictionary<string, CoachEntry> Hist { get; set; } = new();
+}
+
 public sealed class GameSettings
 {
     public double Dpi { get; set; } = 1600;
@@ -88,12 +119,16 @@ public sealed class AppConfig
     public Prefs Prefs { get; set; } = new();
     public string Side { get; set; } = "attackers";
     public string Operator { get; set; } = "";
+    /// <summary>Operator picked in the app: written as the Lua's starting operator (the live operator still comes from the Lua).</summary>
+    public string StartOperator { get; set; } = "";
+    public string StartSide { get; set; } = "attackers";
     public List<string> Favorites { get; set; } = new();
     public Dictionary<string, Loadout> Saved { get; set; } = new();
     public Dictionary<string, NamedLoadoutSet> Loadouts { get; set; } = new();
     public Dictionary<string, LearnedProfile> Learned { get; set; } = new();
     public Dictionary<string, Calibration> Calibration { get; set; } = new();
     public Dictionary<string, KeyBind> LuaKeybinds { get; set; } = new();
+    public CoachSettings Coach { get; set; } = new();
     public string LuaPath { get; set; } = "";
     public string CopiedRev { get; set; } = "";
     public string Baseline { get; set; } = "";

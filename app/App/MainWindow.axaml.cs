@@ -21,6 +21,8 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
 
         C<Button>("NavHome").Click += (_, _) => Show("Home");
+        C<Button>("NavOps").Click += (_, _) => Show("Ops");
+        C<Button>("NavCoach").Click += (_, _) => Show("Coach");
         C<Button>("NavSettings").Click += (_, _) => Show("Settings");
         C<Button>("NavDiag").Click += (_, _) => Show("Diag");
         C<Button>("QuitBtn").Click += (_, _) => _app.Quit();
@@ -34,6 +36,7 @@ public partial class MainWindow : Window
         var grip = C<ComboBox>("GripBox"); grip.ItemsSource = new[] { "AUTO", "HORIZONTAL", "VERTICAL", "ANGLED", "NONE" };
 
         LoadSettings();
+        InitPages();
         Hook(C<NumericUpDown>("DpiBox"), v => _app.Store.Config.Game.Dpi = v);
         Hook(C<NumericUpDown>("SensHBox"), v => _app.Store.Config.Game.SensH = v);
         Hook(C<NumericUpDown>("SensVBox"), v => _app.Store.Config.Game.SensV = v);
@@ -126,15 +129,17 @@ public partial class MainWindow : Window
         catch { }
     }
 
-    public void ShowPage(string name) => Show(name.ToLowerInvariant() switch { "settings" => "Settings", "diag" or "diagnostics" => "Diag", _ => "Home" });
+    public void ShowPage(string name) => Show(name.ToLowerInvariant() switch { "settings" => "Settings", "diag" or "diagnostics" => "Diag", "ops" or "operators" => "Ops", "coach" => "Coach", _ => "Home" });
 
     void Show(string page)
     {
         _page = page;
         C<Control>("PageHome").IsVisible = page == "Home";
+        C<Control>("PageOps").IsVisible = page == "Ops";
+        C<Control>("PageCoach").IsVisible = page == "Coach";
         C<Control>("PageSettings").IsVisible = page == "Settings";
         C<Control>("PageDiag").IsVisible = page == "Diag";
-        foreach (var (name, p) in new[] { ("NavHome", "Home"), ("NavSettings", "Settings"), ("NavDiag", "Diag") })
+        foreach (var (name, p) in new[] { ("NavHome", "Home"), ("NavOps", "Ops"), ("NavCoach", "Coach"), ("NavSettings", "Settings"), ("NavDiag", "Diag") })
         {
             var b = C<Button>(name);
             if (page == p) b.Classes.Add("on"); else b.Classes.Remove("on");
@@ -177,6 +182,8 @@ public partial class MainWindow : Window
             var list = C<ListBox>("RecentList");
             list.ItemsSource = live.Recent.AsEnumerable().Reverse().Take(30).Select(e => e.ToString()).ToList();
         }
+        else if (_page == "Ops") RefreshOps();
+        else if (_page == "Coach") RefreshCoach();
         else if (_page == "Diag")
         {
             var box = C<TextBox>("ReportBox");
