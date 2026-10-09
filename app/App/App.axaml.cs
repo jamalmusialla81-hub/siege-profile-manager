@@ -31,7 +31,16 @@ public partial class App : Application
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             Store = new ConfigStore();
             Store.Load();
-            Sync = new SyncService(Store, Live);
+            Sync = new SyncService(Store, Live)
+            {
+                BundledScript = () =>
+                {
+                    using var st = typeof(App).Assembly.GetManifestResourceStream("siege_profile_manager.lua");
+                    if (st == null) return null;
+                    using var rd = new StreamReader(st, System.Text.Encoding.UTF8);
+                    return rd.ReadToEnd();
+                },
+            };
             Sync.FindLua();
 
             Dbwin.Message += (_, text) => Dispatcher.UIThread.Post(() => Live.Ingest(text));

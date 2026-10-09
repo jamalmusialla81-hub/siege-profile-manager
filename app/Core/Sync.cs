@@ -11,6 +11,7 @@ public sealed class SyncService
     readonly ConfigStore _store;
     readonly LiveState _live;
     string _lastBody = "";
+    string _lastBase = "";
     /// <summary>Operators whose loadout was edited in the app: the Lua's old loadout must not overwrite the edit before the new script is pasted.</summary>
     public HashSet<string> Held { get; } = new();
     public string LastError { get; private set; } = "";
@@ -174,6 +175,40 @@ public sealed class SyncService
     }
 
     // ---- the Lua script on disk ----------------------------------------------------------------
+    /// <summary>The latest Lua script, carried inside the app. When set, every merge starts from it (never from an old file on disk).</summary>
+    public Func<string?>? BundledScript { get; set; }
+
+    /// <summary>Version string of the bundled script ("" when unknown).</summary>
+    public string ExpectedLuaVersion()
+    {
+        var t = BundledScript?.Invoke();
+        if (t == null) return "";
+        var m = System.Text.RegularExpressions.Regex.Match(t, "SPM_LUA_VERSION\\s*=\\s*\"([^\"]+)\"");
+        return m.Success ? m.Groups[1].Value : "";
+    }
+
+    /// <summary>"" when G HUB runs the bundled script, else a sentence saying it is outdated.</summary>
+    public string LuaVersionProblem()
+    {
+        if (!_live.HasData) return "";
+        var want = ExpectedLuaVersion();
+        if (want == "") return "";
+        var have = _live.Get("luaver", "");
+        return have == want ? "" : (have == "" ? "G HUB is running an OLD script (no version). " : $"G HUB is running script {have}, this app has {want}. ")
+            + "Press Copy script and paste it into G HUB.";
+    }
+
+    string? BaseScript(out string error)
+    {
+        error = "";
+        var bundled = BundledScript?.Invoke();
+        if (!string.IsNullOrEmpty(bundled)) return bundled;
+        var path = FindLua();
+        if (path == null) { error = "Lua script not found: choose it in Settings"; return null; }
+        try { return File.ReadAllText(path, Encoding.UTF8); }
+        catch (Exception ex) { error = "cannot read the Lua script: " + ex.Message; return null; }
+    }
+
     public string? FindLua()
     {
         if (C.LuaPath != "" && File.Exists(C.LuaPath)) return C.LuaPath;
@@ -190,12 +225,8 @@ public sealed class SyncService
     /// <summary>The complete script with your config merged in, also saved as the merged file. Marks the config as handed over.</summary>
     public string? BuildFullScript(out string error)
     {
-        error = "";
-        var path = FindLua();
-        if (path == null) { error = "Lua script not found: choose it in Settings"; return null; }
-        string text;
-        try { text = File.ReadAllText(path, Encoding.UTF8); }
-        catch (Exception ex) { error = "cannot read the Lua script: " + ex.Message; return null; }
+        var text = BaseScript(out error);
+        if (text == null) return null;
         var rev = NewRev();
         var merged = LuaBlock.Merge(text, C, rev, out error);
         if (merged == null) return null;
@@ -212,15 +243,22 @@ public sealed class SyncService
         if (!C.AutoWriteLua) return;
         try
         {
-            if (C.LuaPath == "" || !File.Exists(C.LuaPath)) return;
+            if (C.LuaPath == "") return;
+            var dir = Path.GetDirectoryName(C.LuaPath);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
             var body = LuaBlock.Build(C, "0");
-            if (body == _lastBody) return;
-            var text = File.ReadAllText(C.LuaPath, Encoding.UTF8);
-            var merged = LuaBlock.Merge(text, C, NewRev(), out var err);
+            var bundled = BundledScript?.Invoke();
+            string? baseText = !string.IsNullOrEmpty(bundled) ? bundled : (File.Exists(C.LuaPath) ? File.ReadAllText(C.LuaPath, Encoding.UTF8) : null);
+            if (baseText == null) return;
+            if (body == _lastBody && !string.IsNullOrEmpty(_lastBase) && _lastBase == baseText.Length.ToString()) return;
+            var merged = LuaBlock.Merge(baseText, C, NewRev(), out var err);
             if (merged == null) { LastError = err; return; }
+            if (File.Exists(C.LuaPath) && !File.Exists(C.LuaPath + ".bak"))
+                File.Copy(C.LuaPath, C.LuaPath + ".bak");                       // keep the very first file you had
             File.WriteAllText(C.LuaPath, merged, new UTF8Encoding(false));
             File.WriteAllText(MergedPath, merged, new UTF8Encoding(false));
             _lastBody = body;
+            _lastBase = baseText.Length.ToString();
             LastWriteTime = DateTime.Now;
             LastError = "";
             _live.AddLog("Lua file on disk updated with the current config");

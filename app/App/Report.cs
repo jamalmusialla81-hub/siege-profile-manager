@@ -33,6 +33,7 @@ public static class Report
         t.Append("\nCONFIG\n");
         t.Append(Row("CONFIG BLOCK (Lua)", "rev " + live.Get("cfgrev", "-")));
         t.Append(Row("SYNC", sync.State() + ": " + sync.StateText()));
+        t.Append(Row("LUA SCRIPT VERSION", $"G HUB runs {(live.Get("luaver", "") == "" ? "an OLD script" : live.Get("luaver"))}, this app has {sync.ExpectedLuaVersion()}" + (sync.LuaVersionProblem() == "" ? "  (match)" : "  <-- OUTDATED")));
         t.Append(Row("LUA FILE", cfg.LuaPath == "" ? "not found: choose it in Settings" : cfg.LuaPath));
         t.Append(Row("AUTO-WRITE", cfg.AutoWriteLua ? "on" + (sync.LastWriteTime == DateTime.MinValue ? "" : ", last " + sync.LastWriteTime.ToString("HH:mm:ss")) : "off"));
         t.Append(Row("RESOLUTION", $"{cfg.Game.ResW} x {cfg.Game.ResH}   dpi {cfg.Game.Dpi}   sens {cfg.Game.SensH}/{cfg.Game.SensV}"));

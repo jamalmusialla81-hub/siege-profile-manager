@@ -140,6 +140,7 @@ public sealed class CoachService
         var hand = Raw?.EndBurst() ?? new List<RawSample>();
         double ms = Num(p.Get("ms")); int ticks = (int)Num(p.Get("ticks")); double py = Num(p.Get("py"));
         if (py <= 0 || ticks < 25) { Skip("hold fire a bit longer (the macro must pull for 0.3 s or more)"); return; }
+        if (Matching && !Calibrated) { Skip("match learning needs the pixels-per-count calibration first (Coach page: F11, move the mouse slowly, F10)"); return; }
         if (Matching && ms < 450) { Skip("match mode needs a spray of at least half a second"); return; }
         if (Keys != null && Keys.ActivitySince(_burstStart - 150)) { Skip("you were moving, crouching or leaning during that spray"); return; }
         // the Lua's profile for this loadout, as it was when the burst ended

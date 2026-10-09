@@ -179,6 +179,9 @@ public partial class MainWindow : Window
             C<TextBlock>("PrimAtt").Text = has ? "      " + string.Join("  ·  ", new[] { "primary_scope", "primary_barrel", "primary_grip" }.Select(k => live.Get(k, "-"))) : "";
             C<TextBlock>("SecAtt").Text = has ? "      " + string.Join("  ·  ", new[] { "secondary_scope", "secondary_barrel", "secondary_grip" }.Select(k => live.Get(k, "-"))) : "";
             C<TextBlock>("SyncText").Text = _app.Sync.StateText();
+            var warn = _app.Sync.LuaVersionProblem();
+            C<TextBlock>("LuaWarn").IsVisible = warn != "";
+            C<TextBlock>("LuaWarn").Text = "⚠ " + warn;
             var lua = _app.Store.Config.LuaPath;
             C<TextBlock>("SyncFile").Text = lua == "" ? "Lua file not found: choose it under Settings" : "Lua file: " + lua + (_app.Sync.LastWriteTime == DateTime.MinValue ? "" : "   (updated " + _app.Sync.LastWriteTime.ToString("HH:mm:ss") + ")");
             var list = C<ListBox>("RecentList");

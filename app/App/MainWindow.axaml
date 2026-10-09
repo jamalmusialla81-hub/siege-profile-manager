@@ -44,6 +44,7 @@
             <StackPanel>
               <TextBlock Text="CONFIG IN G HUB" Classes="h" />
               <TextBlock Name="SyncText" FontSize="14" Foreground="#E9EDF3" TextWrapping="Wrap" />
+              <TextBlock Name="LuaWarn" FontSize="13" FontWeight="SemiBold" Foreground="#F07178" TextWrapping="Wrap" Margin="0,6,0,0" IsVisible="False" />
               <TextBlock Name="SyncFile" Classes="dim" FontSize="11" Margin="0,4,0,12" TextWrapping="Wrap" />
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <Button Name="CopyBtn" Classes="primary" Content="Copy script" />

@@ -16,5 +16,6 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.1.5" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.1.5" />
     <ProjectReference Include="../Core/SPM.Core.csproj" />
+    <EmbeddedResource Include="../../siege_profile_manager.lua" LogicalName="siege_profile_manager.lua" />
   </ItemGroup>
 </Project>
