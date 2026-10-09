@@ -4,9 +4,12 @@ using System.Text.Json.Nodes;
 namespace SPM.Core;
 
 /// <summary>Loads and saves the app config (debounced), and imports the old AutoHotkey config once.</summary>
+[System.Text.Json.Serialization.JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
+[System.Text.Json.Serialization.JsonSerializable(typeof(AppConfig))]
+internal partial class ConfigJson : System.Text.Json.Serialization.JsonSerializerContext { }
+
 public sealed class ConfigStore : IDisposable
 {
-    static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     readonly object _gate = new();
     System.Threading.Timer? _timer;
@@ -35,7 +38,7 @@ public sealed class ConfigStore : IDisposable
         {
             if (File.Exists(FilePath))
             {
-                Config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(FilePath), Json) ?? new AppConfig();
+                Config = JsonSerializer.Deserialize(File.ReadAllText(FilePath), ConfigJson.Default.AppConfig) ?? new AppConfig();
             }
             else
             {
@@ -90,7 +93,7 @@ public sealed class ConfigStore : IDisposable
             try
             {
                 var tmp = FilePath + ".tmp";
-                File.WriteAllText(tmp, JsonSerializer.Serialize(Config, Json));
+                File.WriteAllText(tmp, JsonSerializer.Serialize(Config, ConfigJson.Default.AppConfig));
                 if (File.Exists(FilePath)) File.Copy(FilePath, FilePath + ".bak", true);
                 File.Move(tmp, FilePath, true);
                 LastError = "";

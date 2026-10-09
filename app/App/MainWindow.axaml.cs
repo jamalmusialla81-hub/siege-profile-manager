@@ -126,6 +126,8 @@ public partial class MainWindow : Window
         catch { }
     }
 
+    public void ShowPage(string name) => Show(name.ToLowerInvariant() switch { "settings" => "Settings", "diag" or "diagnostics" => "Diag", _ => "Home" });
+
     void Show(string page)
     {
         _page = page;

@@ -48,9 +48,17 @@ public partial class App : Application
             if (!Dbwin.Ready) Live.AddLog("debug channel not available: " + Dbwin.Error);
             else if (Dbwin.Shared) Live.AddLog("another debug monitor (DebugView?) is running: close it");
 
+            // test helpers: --feed <file> plays recorded packets into the link, --page <home|settings|diag> opens that page
+            var argv = desktop.Args ?? Array.Empty<string>();
+            int fi = Array.IndexOf(argv, "--feed");
+            if (fi >= 0 && fi + 1 < argv.Length && File.Exists(argv[fi + 1])) Live.Ingest(File.ReadAllText(argv[fi + 1]));
+            int pi = Array.IndexOf(argv, "--page");
+            var startPage = pi >= 0 && pi + 1 < argv.Length ? argv[pi + 1] : "home";
+
             SetupTray(desktop);
             ApplyHud();
             _main.Show();
+            _main.ShowPage(startPage);
 
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             timer.Tick += (_, _) => { _main.Refresh(); _hud.Refresh(); };

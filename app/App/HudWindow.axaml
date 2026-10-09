@@ -16,7 +16,7 @@
       <TextBlock Name="PrimAtt" FontSize="11" Foreground="#8D96A8" />
       <TextBlock Name="Sec" FontSize="13" Foreground="#E9EDF3" Margin="0,6,0,0" />
       <TextBlock Name="SecAtt" FontSize="11" Foreground="#8D96A8" />
-      <TextBlock Name="Status" FontSize="11" Foreground="#8D96A8" Margin="0,8,0,0" />
+      <TextBlock Name="Status" FontSize="11" Foreground="#8D96A8" Margin="0,8,0,0" TextWrapping="Wrap" />
     </StackPanel>
   </Border>
 </Window>
