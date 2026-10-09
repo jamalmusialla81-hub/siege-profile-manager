@@ -4634,12 +4634,12 @@ class Coach {
     static Analyze() {
         raw := Coach.Raw, fin := Coach.End
         Coach.Raw := "", Coach.End := ""
-        if (fin["py"] <= 0 || fin["ticks"] < 40) {
-            Coach.Skip("the macro did not pull (aim down sights, hold fire 0.5 s or more)")
+        if (fin["py"] <= 0 || fin["ticks"] < 25) {
+            Coach.Skip("the macro did not pull (aim down sights, hold fire 0.3 s or more)")
             return
         }
         nb := Min(80, Floor(raw["dur"] / 100))
-        if (nb < 5) {
+        if (nb < 3) {
             Coach.Skip("burst too short (" Round(raw["dur"]) " ms)")
             return
         }
