@@ -3320,7 +3320,10 @@ function OnEvent(event, arg, family)
         local held = HeldModifiers()
         d.last = (BUTTON_NAME[arg] or tostring(arg)) .. (#held > 0 and ("+" .. table.concat(held, "+")) or "")
     end
-    if HandleMouseButton(arg) then
+    -- Aim held + fire pressed is always a shot, never a manager hotkey (RSHIFT / LALT / ... held while shooting used to
+    -- be taken as "select operator" / "next grip" and the macro never started). The operator selector has no ADS.
+    local firing = (arg == CONFIG.recoil.fireButton) and IsMouseButtonPressed(CONFIG.recoil.aimButton)
+    if not firing and HandleMouseButton(arg) then
         if arg == CONFIG.recoil.fireButton or arg == CONFIG.recoil.aimEvent then
             local d = State.diag
             d.skips, d.skip = d.skips + 1, "click taken by a manager hotkey (" .. d.last .. ")"
