@@ -1,0 +1,128 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SPM.App.MainWindow"
+        Title="Siege Profile Manager" Width="980" Height="660" MinWidth="860" MinHeight="560"
+        Background="#0C0E13" WindowStartupLocation="CenterScreen">
+  <Grid ColumnDefinitions="200,*">
+    <Border Background="#13161D">
+      <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Margin="0,4,0,24">
+          <TextBlock Text="Siege Profile" FontSize="17" FontWeight="SemiBold" Foreground="#E9EDF3" />
+          <TextBlock Text="Manager  ·  v3.0" FontSize="11" Foreground="#596275" />
+        </StackPanel>
+        <Button DockPanel.Dock="Bottom" Name="QuitBtn" Classes="sec" Content="Quit app" HorizontalAlignment="Stretch" />
+        <StackPanel>
+          <Button Name="NavHome" Classes="nav on" Content="Home" />
+          <Button Name="NavSettings" Classes="nav" Content="Settings" />
+          <Button Name="NavDiag" Classes="nav" Content="Diagnostics" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Grid Grid.Column="1" Margin="26,22,26,22">
+      <!-- HOME -->
+      <ScrollViewer Name="PageHome">
+        <StackPanel>
+          <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+            <TextBlock Text="Home" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" />
+            <TextBlock Name="LinkText" Grid.Column="1" FontSize="13" FontWeight="SemiBold" Foreground="#F2B84B" VerticalAlignment="Center" />
+          </Grid>
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Text="CURRENT OPERATOR" Classes="h" />
+              <TextBlock Name="OpText" FontSize="30" FontWeight="Bold" Foreground="#E9EDF3" />
+              <TextBlock Name="SideText" FontSize="12" Foreground="#4CC9E8" Margin="0,2,0,12" />
+              <TextBlock Name="PrimText" FontSize="15" Foreground="#E9EDF3" />
+              <TextBlock Name="PrimAtt" Classes="dim" FontSize="12" Margin="0,0,0,8" />
+              <TextBlock Name="SecText" FontSize="15" Foreground="#E9EDF3" />
+              <TextBlock Name="SecAtt" Classes="dim" FontSize="12" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Text="CONFIG IN G HUB" Classes="h" />
+              <TextBlock Name="SyncText" FontSize="14" Foreground="#E9EDF3" TextWrapping="Wrap" />
+              <TextBlock Name="SyncFile" Classes="dim" FontSize="11" Margin="0,4,0,12" TextWrapping="Wrap" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Name="CopyBtn" Classes="primary" Content="Copy script" />
+                <Button Name="FolderBtn" Classes="sec" Content="Show merged file" />
+              </StackPanel>
+              <TextBlock Name="CopyMsg" Classes="dim" FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel>
+              <TextBlock Text="RECENT CHANGES" Classes="h" />
+              <ListBox Name="RecentList" Background="Transparent" MaxHeight="220" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- SETTINGS -->
+      <ScrollViewer Name="PageSettings" IsVisible="False">
+        <StackPanel>
+          <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" Margin="0,0,0,16" />
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Text="GAME" Classes="h" />
+              <Grid ColumnDefinitions="170,160" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                <Grid.Styles><Style Selector="Grid > Control"><Setter Property="Margin" Value="0,0,0,8" /></Style></Grid.Styles>
+                <TextBlock Text="Mouse DPI" VerticalAlignment="Center" /><NumericUpDown Name="DpiBox" Grid.Column="1" Minimum="50" Maximum="32000" Increment="50" FormatString="0" />
+                <TextBlock Grid.Row="1" Text="Sensitivity horizontal" VerticalAlignment="Center" /><NumericUpDown Name="SensHBox" Grid.Row="1" Grid.Column="1" Minimum="0.1" Maximum="100" Increment="0.5" FormatString="0.0#" />
+                <TextBlock Grid.Row="2" Text="Sensitivity vertical" VerticalAlignment="Center" /><NumericUpDown Name="SensVBox" Grid.Row="2" Grid.Column="1" Minimum="0.1" Maximum="100" Increment="0.5" FormatString="0.0#" />
+                <TextBlock Grid.Row="3" Text="Field of view" VerticalAlignment="Center" /><NumericUpDown Name="FovBox" Grid.Row="3" Grid.Column="1" Minimum="40" Maximum="140" Increment="1" FormatString="0" />
+                <TextBlock Grid.Row="4" Text="ADS sensitivity" VerticalAlignment="Center" /><NumericUpDown Name="AdsBox" Grid.Row="4" Grid.Column="1" Minimum="1" Maximum="200" Increment="1" FormatString="0" />
+                <TextBlock Grid.Row="5" Text="Resolution (W x H)" VerticalAlignment="Center" />
+                <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                  <NumericUpDown Name="ResWBox" Width="84" Minimum="640" Maximum="16384" Increment="1" FormatString="0" ShowButtonSpinner="False" />
+                  <NumericUpDown Name="ResHBox" Width="84" Minimum="480" Maximum="16384" Increment="1" FormatString="0" ShowButtonSpinner="False" />
+                </StackPanel>
+              </Grid>
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Text="DEFAULT ATTACHMENTS" Classes="h" />
+              <Grid ColumnDefinitions="170,200" RowDefinitions="Auto,Auto">
+                <Grid.Styles><Style Selector="Grid > Control"><Setter Property="Margin" Value="0,0,0,8" /></Style></Grid.Styles>
+                <TextBlock Text="Preferred barrel" VerticalAlignment="Center" /><ComboBox Name="BarrelBox" Grid.Column="1" Width="200" />
+                <TextBlock Grid.Row="1" Text="Preferred grip" VerticalAlignment="Center" /><ComboBox Name="GripBox" Grid.Row="1" Grid.Column="1" Width="200" />
+              </Grid>
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Text="LUA SCRIPT" Classes="h" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Name="LuaPathBox" Watermark="Path to siege_profile_manager.lua" />
+                <Button Name="BrowseBtn" Grid.Column="1" Classes="sec" Content="Browse…" Margin="8,0,0,0" />
+              </Grid>
+              <CheckBox Name="AutoWriteChk" Content="Keep the config inside this Lua file up to date automatically" />
+              <TextBlock Name="LuaPathMsg" Classes="dim" FontSize="12" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Text="BEHAVIOUR" Classes="h" />
+              <CheckBox Name="HudChk" Content="Show the HUD overlay  (F9)" />
+              <CheckBox Name="SlotChk" Content="Follow the 1 / 2 weapon keys (needed for secondary-weapon recoil)" />
+              <CheckBox Name="SlotAnyChk" Content="React to 1 / 2 in any window (for testing without Siege)" />
+              <TextBlock Text="F8 shows or hides this window. The HUD never takes mouse clicks." Classes="dim" FontSize="12" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- DIAGNOSTICS -->
+      <Grid Name="PageDiag" IsVisible="False" RowDefinitions="Auto,*,Auto">
+        <TextBlock Text="Diagnostics" FontSize="22" FontWeight="SemiBold" Foreground="#E9EDF3" Margin="0,0,0,16" />
+        <TextBox Name="ReportBox" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" FontFamily="Consolas,Courier New,monospace" FontSize="12" TextWrapping="NoWrap" />
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,12,0,0">
+          <Button Name="CopyReportBtn" Classes="primary" Content="Copy report" />
+          <Button Name="DataFolderBtn" Classes="sec" Content="Open data folder" />
+        </StackPanel>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>
