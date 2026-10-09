@@ -7,7 +7,7 @@ namespace SPM.App;
 /// <summary>Checks a version file next to the published exe and replaces the running exe in place.</summary>
 public sealed class Updater
 {
-    public const string BaseUrl = "https://raw.githubusercontent.com/jamalmusialla81-hub/siege-profile-manager/claude/jolly-edison-9j6oad/app/dist/";
+    public const string BaseUrl = "https://raw.githubusercontent.com/jamalmusialla81-hub/siege-profile-manager/main/app/dist/";
     public static string Current => (Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0)).ToString(3);
     public string Latest { get; private set; } = "";
     public bool Available => Latest != "" && Version.TryParse(Latest, out var l) && Version.TryParse(Current, out var c) && l > c;
