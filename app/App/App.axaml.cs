@@ -42,6 +42,7 @@ public partial class App : Application
                 },
             };
             Sync.FindLua();
+            Sync.WriteLive(true);                         // the G HUB script loads this file by itself
 
             Dbwin.Message += (_, text) => Dispatcher.UIThread.Post(() => Live.Ingest(text));
             Dbwin.Start();

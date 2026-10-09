@@ -35,6 +35,7 @@ public static class Report
         t.Append(Row("SYNC", sync.State() + ": " + sync.StateText()));
         t.Append(Row("LUA SCRIPT VERSION", $"G HUB runs {(live.Get("luaver", "") == "" ? "an OLD script" : live.Get("luaver"))}, this app has {sync.ExpectedLuaVersion()}" + (sync.LuaVersionProblem() == "" ? "  (match)" : "  <-- OUTDATED")));
         t.Append(Row("G HUB LUA API", live.Get("api", "- (update the script to see it)")));
+        t.Append(Row("LIVE CONFIG", $"G HUB reports '{live.Get("live", "-")}'  ·  file {(File.Exists(sync.LivePath) ? "written " + (sync.LiveWriteTime == DateTime.MinValue ? "-" : sync.LiveWriteTime.ToString("HH:mm:ss")) : "missing")}  ·  {sync.LivePath}"));
         t.Append(Row("LUA FILE", cfg.LuaPath == "" ? "not found: choose it in Settings" : cfg.LuaPath));
         t.Append(Row("AUTO-WRITE", cfg.AutoWriteLua ? "on" + (sync.LastWriteTime == DateTime.MinValue ? "" : ", last " + sync.LastWriteTime.ToString("HH:mm:ss")) : "off"));
         t.Append(Row("RESOLUTION", $"{cfg.Game.ResW} x {cfg.Game.ResH}   dpi {cfg.Game.Dpi}   sens {cfg.Game.SensH}/{cfg.Game.SensV}"));

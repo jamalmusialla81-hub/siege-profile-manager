@@ -19,6 +19,9 @@ public sealed class SyncService
 
     AppConfig C => _store.Config;
     public string MergedPath => Path.Combine(_store.Dir, "siege_profile_manager.merged.lua");
+    public string LivePath => Path.Combine(_store.Dir, "spm_live.lua");
+    public DateTime LiveWriteTime { get; private set; } = DateTime.MinValue;
+    string _lastLiveBody = "";
 
     public SyncService(ConfigStore store, LiveState live)
     {
@@ -26,7 +29,8 @@ public sealed class SyncService
         _live = live;
         live.StateReceived += OnState;
         live.EventReceived += OnEvent;
-        store.Saved += AutoWrite;
+        LuaBlock.LivePath = LivePath;
+        store.Saved += () => { WriteLive(); AutoWrite(); };
     }
 
     // ---- config <-> Lua baseline ---------------------------------------------------------------
@@ -71,8 +75,10 @@ public sealed class SyncService
     public string StateText() => State() switch
     {
         SyncState.Ok => "In sync: the Lua in G HUB has your latest config",
-        SyncState.Pending => "New changes: copy the script and paste it into G HUB",
-        SyncState.Old => "G HUB has an older config: copy the script and paste it again",
+        SyncState.Pending => _live.Get("live") == "ok" ? "Sending live..." : "New changes: copy the script and paste it into G HUB",
+        SyncState.Old => _live.Get("live") == "ok"
+            ? "Sent live: G HUB picks it up on your next shot or key press"
+            : "G HUB has an older config: copy the script and paste it again",
         SyncState.NoBlock => "G HUB has no config yet: copy the script and paste it into G HUB",
         _ => "Waiting for G HUB",
     };
@@ -235,6 +241,29 @@ public sealed class SyncService
         Rebase();
         _store.Touch();
         return merged;
+    }
+
+    /// <summary>
+    /// Writes the live config file (atomic replace) whenever the config really changed. The G HUB script reads it with loadfile, so
+    /// no paste is needed. The file counts as "handed over": the rev inside it becomes the expected rev.
+    /// </summary>
+    public void WriteLive(bool force = false)
+    {
+        try
+        {
+            var body = LuaBlock.Build(C, "0");
+            if (!force && body == _lastLiveBody && File.Exists(LivePath)) return;
+            var rev = NewRev();
+            var text = LuaBlock.BuildLive(C, rev);
+            var tmp = LivePath + ".tmp";
+            File.WriteAllText(tmp, text, new UTF8Encoding(false));
+            File.Move(tmp, LivePath, true);
+            _lastLiveBody = body;
+            LiveWriteTime = DateTime.Now;
+            C.CopiedRev = rev;
+            Rebase();
+        }
+        catch (Exception ex) { LastError = "live file: " + ex.Message; }
     }
 
     /// <summary>After every config save: keep the SPM_USER block inside the Lua file on disk current (only when it really changed).</summary>
