@@ -29,6 +29,7 @@ public partial class MainWindow
             var name = n;
             C<ComboBox>(name).SelectionChanged += (_, _) => { if (!_loading) OnLoadoutPick(name); };
         }
+        C<CheckBox>("MatchChk").IsCheckedChanged += (_, _) => { if (!_loading) _app.Coach.InMatch = C<CheckBox>("MatchChk").IsChecked == true; };
         C<Button>("TrainBtn").Click += (_, _) => _app.Coach.SetTraining(!_app.Coach.Training);
         C<Button>("CalBeginBtn").Click += (_, _) => C<TextBlock>("CoachStatus").Text = _app.Coach.BeginCalibration() is { Length: > 0 } m ? "⚠ " + m : _app.Coach.Status;
         C<Button>("CalFinishBtn").Click += (_, _) => _app.Coach.FinishCalibration();
@@ -156,8 +157,9 @@ public partial class MainWindow
     void RefreshCoach()
     {
         var co = _app.Coach; var cfg = _app.Store.Config;
+        _loading = true; C<CheckBox>("MatchChk").IsChecked = co.InMatch; _loading = false;
         C<Button>("TrainBtn").Content = co.Training ? "Stop training  (F12)" : "Start training  (F12)";
-        C<TextBlock>("TrainText").Text = co.Training ? "● TRAINING ON" : "○ off";
+        C<TextBlock>("TrainText").Text = co.Training ? "● TRAINING ON" : co.InMatch ? "○ range training off  ·  learning carefully in matches" : "○ off";
         C<TextBlock>("CoachStatus").Text = co.Status;
         C<TextBlock>("PxText").Text = co.Calibrated
             ? $"vertical {cfg.Coach.PxY:0.000} px per count   ·   horizontal {cfg.Coach.PxX:0.000}   (calibrated)"

@@ -5,8 +5,21 @@ namespace SPM.Core.Coach;
 /// <summary>Physical mouse counts (Windows raw input). Used only to measure how many screen pixels one count moves the view.</summary>
 public interface IRawMouse
 {
+    /// <summary>Calibration: counts of the physical mouse between Begin and End.</summary>
     void BeginCapture();
     (long Dx, long Dy) EndCapture();
+    /// <summary>A spray: every raw movement during it, with the device that made it.</summary>
+    void BeginBurst();
+    List<RawSample> EndBurst();
+    /// <summary>Devices that moved while you were NOT firing = your real mouse (the macro's own movement is a different device).</summary>
+    HashSet<long> PhysicalDevices();
+}
+
+/// <summary>Movement keys (W A S D, crouch, lean, jump...) seen by the keyboard hook.</summary>
+public interface IMoveKeys
+{
+    /// <summary>True when a movement key was pressed, held or released at or after this clock time.</summary>
+    bool ActivitySince(long clockMs);
 }
 
 /// <summary>
@@ -29,7 +42,12 @@ public sealed class CoachService
     public Func<int, int, int, int, Frame?>? Grab { get; set; }
     public Func<bool> Allowed { get; set; } = () => true;
     public IRawMouse? Raw { get; set; }
+    public IMoveKeys? Keys { get; set; }
+    long _burstStart;
+    public bool Matching { get; private set; }                  // the current/last spray was measured in match mode
 
+    /// <summary>Also learn while playing a match (careful mode: skips sprays where you moved, subtracts your own mouse, learns slower).</summary>
+    public bool InMatch { get => _store.Config.CoachInMatch; set { _store.Config.CoachInMatch = value; _store.Touch(); Changed?.Invoke(); } }
     public bool Training { get; private set; }
     DateTime _trainUntil = DateTime.MinValue;
     public string Status { get; private set; } = "Training is off";
@@ -55,7 +73,7 @@ public sealed class CoachService
     {
         Training = on;
         _trainUntil = on ? DateTime.UtcNow.AddMinutes(20) : DateTime.MinValue;
-        Status = on ? "Training is ON (switches itself off after 20 minutes)" : "Training is off";
+        Status = on ? "Training is ON (switches itself off after 20 minutes)" : (InMatch ? "Training off: learning carefully during matches" : "Training is off");
         Changed?.Invoke();
     }
 
@@ -65,7 +83,7 @@ public sealed class CoachService
     public string Why()
     {
         if (Training && DateTime.UtcNow > _trainUntil) { Training = false; }
-        if (!Training) return "Training is off (turn it on in the range)";
+        if (!Training && !InMatch) return "Training is off and match learning is off";
         if (!_live.HasData) return "no live data from G HUB";
         if (!Allowed()) return "Siege is not the active window";
         if (Grab == null) return "screen capture unavailable";
@@ -93,19 +111,23 @@ public sealed class CoachService
         var why = Why();
         if (why != "") { Status = "idle: " + why; Changed?.Invoke(); return; }
         if (_busy) return;
+        Matching = !Training;
+        _burstStart = Clock.Ms;
+        Raw?.BeginBurst();
         lock (_gate) _recording = true;
         Snap();
-        _timer = new System.Threading.Timer(_ => Snap(), null, 250, 250);
+        int every = Matching ? 160 : 250;                       // match sprays are short: sample faster
+        _timer = new System.Threading.Timer(_ => Snap(), null, every, every);
     }
 
     void Snap()
     {
         try
         {
-            lock (_gate) { if (!_recording || _frames.Count >= 14) return; }
+            lock (_gate) { if (!_recording || _frames.Count >= 24) return; }
             var r = Region();
             var f = Grab?.Invoke(r.X, r.Y, r.W, r.H);
-            if (f != null) lock (_gate) if (_recording && _frames.Count < 14) _frames.Add((Environment.TickCount64, f));
+            if (f != null) lock (_gate) if (_recording && _frames.Count < 24) _frames.Add((Clock.Ms, f));
         }
         catch (Exception e) { _live.AddLog("screen capture failed: " + e.Message); }
     }
@@ -115,8 +137,11 @@ public sealed class CoachService
         _timer?.Dispose(); _timer = null;
         List<(long T, Frame F)> frames;
         lock (_gate) { if (!_recording) return; _recording = false; frames = new(_frames); _frames.Clear(); }
+        var hand = Raw?.EndBurst() ?? new List<RawSample>();
         double ms = Num(p.Get("ms")); int ticks = (int)Num(p.Get("ticks")); double py = Num(p.Get("py"));
         if (py <= 0 || ticks < 25) { Skip("hold fire a bit longer (the macro must pull for 0.3 s or more)"); return; }
+        if (Matching && ms < 450) { Skip("match mode needs a spray of at least half a second"); return; }
+        if (Keys != null && Keys.ActivitySince(_burstStart - 150)) { Skip("you were moving, crouching or leaning during that spray"); return; }
         // the Lua's profile for this loadout, as it was when the burst ended
         var key = Key();
         double pa = Num(_live.Get("pull_a", "x")), pb = Num(_live.Get("pull_b", "x")), pc = Num(_live.Get("pull_c", "x"));
@@ -127,6 +152,8 @@ public sealed class CoachService
             T1 = OrDef(Num(_live.Get("pull_t1", "x")), 450), T2 = OrDef(Num(_live.Get("pull_t2", "x")), 900), Gain = OrDef(Num(_live.Get("recoil_gain", "1")), 1),
         };
         var burst = new BurstInfo { Ms = ms, Ticks = ticks, PyCounts = py };
+        var phys = Raw?.PhysicalDevices() ?? new HashSet<long>();
+        var handSamples = hand.Where(h => phys.Count == 0 || phys.Contains(h.Dev)).ToList();
         var g = C.Game; double cy = PxY, cx = PxX;
         var (sw, sh) = ScreenSize(); var reg = Region();
         int mx = sw / 2 - reg.X, my = sh / 2 - reg.Y;
@@ -136,7 +163,7 @@ public sealed class CoachService
             try
             {
                 var list = frames.Select(f => (f.T, ImageShift.Profile(f.F, mx, my))).ToList();
-                var res = CoachMath.Analyze(list, burst, pulls, g, cy, cx, out var why);
+                var res = CoachMath.Analyze(list, burst, pulls, g, cy, cx, out var why, handSamples, Matching ? 3 : 2);
                 Post(() => { _busy = false; if (res == null) Skip(why); else Apply(res); });
             }
             catch (Exception e) { Post(() => { _busy = false; Skip("analysis failed: " + e.Message); }); }
@@ -167,12 +194,12 @@ public sealed class CoachService
     {
         Measured++;
         LastResult = r;
-        var lp = CoachBook.Record(C, r, out var msg);
+        var lp = Matching ? CoachBook.Record(C, r, out var msg, 5, 0.35) : CoachBook.Record(C, r, out msg);
         _store.Touch();
-        Last = $"EARLY {CoachMath.Say(r.Early, r.Pa)}  ·  MID {CoachMath.Say(r.Mid, r.Pb)}  ·  LATE {CoachMath.Say(r.Late, r.Pc)}  ·  sideways "
+        Last = (Matching ? "match: " : "") + $"EARLY {CoachMath.Say(r.Early, r.Pa)}  ·  MID {CoachMath.Say(r.Mid, r.Pb)}  ·  LATE {CoachMath.Say(r.Late, r.Pc)}  ·  sideways "
              + (Math.Abs(r.Sideways) < 0.08 ? "ok" : "drifts " + (r.Sideways < 0 ? "RIGHT" : "LEFT"))
              + $"   ({r.UsedIntervals} of {r.Intervals} clear)";
-        Status = msg;
+        Status = (Matching ? "[match] " : "[range] ") + msg;
         if (lp != null) _live.AddRecent("Coach improved " + r.Key);
         _live.AddLog("coach: " + Last + " | " + msg);
         Changed?.Invoke();

@@ -15,7 +15,7 @@ public sealed class Prof
     public double[] Y { get; init; } = Array.Empty<double>();
 }
 
-public sealed record ShiftResult(int D, double C, double Sec)
+public sealed record ShiftResult(int D, double C, double Sec, double Dsub = 0)
 {
     public bool Clear => C >= 0.4 && C - Sec >= 0.03;
 }
@@ -92,7 +92,16 @@ public static class ImageShift
         double sec = -2;
         for (int k = 0; k < cs.Length; k++)
             if (Math.Abs(k - maxd - bd) > 3 && cs[k] > sec) sec = cs[k];
-        return new ShiftResult(bd, best, sec);
+        // sub-sample position: parabola through the peak and its two neighbours
+        double dsub = bd;
+        int k0 = bd + maxd;
+        if (k0 > 0 && k0 < cs.Length - 1)
+        {
+            double l = cs[k0 - 1], c0 = cs[k0], r = cs[k0 + 1];
+            double den = l - 2 * c0 + r;
+            if (den < -1e-9) dsub = bd + Math.Clamp(0.5 * (l - r) / den, -0.5, 0.5);
+        }
+        return new ShiftResult(bd, best, sec, dsub);
     }
 
     /// <summary>How far B moved relative to A, per axis, or null when neither axis is usable (reason in why).</summary>
@@ -102,7 +111,7 @@ public static class ImageShift
         if (a == null || b == null) { why = "a picture looks blank (is the game in borderless / windowed mode? exclusive fullscreen captures black)"; return null; }
         var sy = Shift(a.Y, b.Y, Math.Min(60, a.Y.Length / 2 - 10));
         var sx = Shift(a.X, b.X, Math.Min(60, a.X.Length / 2 - 10));
-        var m = new Move(sx.Clear ? sx.D * Stp : null, sy.Clear ? sy.D * Stp : null, sx.C, sy.C);
+        var m = new Move(sx.Clear ? sx.Dsub * Stp : null, sy.Clear ? sy.Dsub * Stp : null, sx.C, sy.C);
         if (m.Dx == null && m.Dy == null)
         {
             why = $"the picture match was unclear (vertical {sy.C:0.00} vs {sy.Sec:0.00}, horizontal {sx.C:0.00} vs {sx.Sec:0.00}; needs 0.40 and a clear gap)";

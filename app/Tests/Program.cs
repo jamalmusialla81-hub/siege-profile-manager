@@ -147,6 +147,29 @@ SPM.Core.Coach.Frame MakeFrame(int w, int h, int dx, int dy)
     store3.Dispose();
 }
 
+
+// ---- your own mouse movement must not look like recoil error ----------------------------------------------
+{
+    int W = 640, H = 300;
+    var frames = new List<(long, SPM.Core.Coach.Prof?)>();
+    int cum = 0;
+    for (int i = 0; i < 6; i++)
+    {
+        frames.Add((1000 + i * 160, SPM.Core.Coach.ImageShift.Profile(MakeFrame(W, H, 0, cum), W / 2, H / 2)));
+        cum -= 30;                                       // content moves UP 30 px per interval: the view looks down
+    }
+    // the physical mouse moved down 75 counts per interval (75 * 0.4 px = 30 px of view movement)
+    var hand = new List<SPM.Core.Coach.RawSample>();
+    for (int i = 0; i < 5; i++) hand.Add(new SPM.Core.Coach.RawSample(1000 + i * 160 + 80, 0, 75, 1));
+    var g2 = new GameSettings { Dpi = 1600, SensH = 4, SensV = 4 };
+    var pl = new SPM.Core.Coach.Pulls { Key = "H:NONE:NONE", A = 10, B = 12, C = 14, T1 = 450, T2 = 900, Gain = 1 };
+    var bi = new SPM.Core.Coach.BurstInfo { Ms = 800, Ticks = 114, PyCounts = 3000 };
+    var without = SPM.Core.Coach.CoachMath.Analyze(frames, bi, pl, g2, 0.4, 0.4, out var w1);
+    var with = SPM.Core.Coach.CoachMath.Analyze(frames, bi, pl, g2, 0.4, 0.4, out var w2, hand, 3);
+    Check(without != null && without.Early < -0.3, $"without hand data the view looks over-pulled (early {without?.Early:0.00})");
+    Check(with != null && Math.Abs(with.Early) < 0.1 && Math.Abs(with.Mid) < 0.1, $"your own mouse movement is subtracted (early {with?.Early:0.00}, mid {with?.Mid:0.00}) {w2}");
+}
+
 store.Dispose();
 Console.WriteLine(fails == 0 ? "ALL PASSED" : fails + " FAILED");
 return fails == 0 ? 0 : 1;

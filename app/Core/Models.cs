@@ -134,6 +134,7 @@ public sealed class AppConfig
     public string Baseline { get; set; } = "";
     public bool SeededStandard { get; set; }
     public bool HudVisible { get; set; } = true;
+    public bool CoachInMatch { get; set; } = true;
     public bool SlotSyncEnabled { get; set; } = true;
     public bool SlotSyncAnywhere { get; set; }
     public bool AutoWriteLua { get; set; } = true;

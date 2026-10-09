@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using SPM.Core;
+using SPM.Core.Coach;
 
 namespace SPM.App;
 
@@ -60,8 +61,13 @@ public sealed class DbwinListener : IDisposable
 }
 
 /// <summary>Global keys: F8 window, F9 HUD, and the 1 / 2 weapon keys that drive the Lua's slot sync (Scroll Lock).</summary>
-public sealed class HookService : IDisposable
+public sealed class HookService : IDisposable, IMoveKeys
 {
+    static readonly HashSet<int> MoveVk = new() { 0x57, 0x41, 0x53, 0x44, 0x51, 0x45, 0x43, 0x20, 0xA2, 0xA3, 0xA0 };   // W A S D Q E C Space Ctrl LShift
+    readonly HashSet<int> _down = new();
+    long _lastMove;
+    public bool ActivitySince(long clockMs) { lock (_down) return _down.Count > 0 || _lastMove >= clockMs; }
+
     readonly Native.LowLevelKeyboardProc _proc;
     IntPtr _hook;
     readonly ConfigStore _store;
@@ -99,11 +105,17 @@ public sealed class HookService : IDisposable
     {
         try
         {
+            if (code >= 0 && (wParam == (IntPtr)0x0101 || wParam == (IntPtr)0x0105))                  // key released
+            {
+                int vkUp = Marshal.ReadInt32(lParam);
+                if (MoveVk.Contains(vkUp)) lock (_down) { _down.Remove(vkUp); _lastMove = Clock.Ms; }
+            }
             if (code >= 0 && (wParam == (IntPtr)Native.WM_KEYDOWN || wParam == (IntPtr)Native.WM_SYSKEYDOWN))
             {
                 int vk = Marshal.ReadInt32(lParam);
                 int flags = Marshal.ReadInt32(lParam, 8);
                 bool injected = (flags & 0x10) != 0;
+                if (!injected && MoveVk.Contains(vk)) lock (_down) { _down.Add(vk); _lastMove = Clock.Ms; }
                 if (!injected)
                 {
                     if (vk == 0x77) ToggleWindow?.Invoke();                                        // F8

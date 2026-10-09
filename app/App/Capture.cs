@@ -77,8 +77,10 @@ public sealed class RawMouse : IRawMouse, IDisposable
     [DllImport("user32.dll")] static extern bool DestroyWindow(IntPtr hwnd);
 
     readonly object _gate = new();
-    long _dx, _dy;
-    volatile bool _capturing;
+    readonly List<RawSample> _calib = new();
+    readonly List<RawSample> _burst = new();
+    readonly Dictionary<long, long> _idle = new();
+    volatile bool _capturing, _inBurst;
     IntPtr _hwnd;
     Thread? _thread;
     WndProc? _proc;
@@ -117,7 +119,7 @@ public sealed class RawMouse : IRawMouse, IDisposable
 
     IntPtr Proc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
-        if (msg == 0x00FF && _capturing)                                   // WM_INPUT
+        if (msg == 0x00FF)                                                 // WM_INPUT
         {
             try
             {
@@ -132,7 +134,18 @@ public sealed class RawMouse : IRawMouse, IDisposable
                         int h = (int)header;
                         ushort flags = BitConverter.ToUInt16(buf, h);
                         if ((flags & 1) == 0)                                // relative movement only
-                            lock (_gate) { _dx += BitConverter.ToInt32(buf, h + 12); _dy += BitConverter.ToInt32(buf, h + 16); }
+                        {
+                            int dx = BitConverter.ToInt32(buf, h + 12), dy = BitConverter.ToInt32(buf, h + 16);
+                            long dev = BitConverter.ToInt64(buf, 8);
+                            if (dx != 0 || dy != 0)
+                                lock (_gate)
+                                {
+                                    var smp = new RawSample(Clock.Ms, dx, dy, dev);
+                                    if (_inBurst) { if (_burst.Count < 20000) _burst.Add(smp); }
+                                    else _idle[dev] = _idle.GetValueOrDefault(dev) + Math.Abs(dx) + Math.Abs(dy);   // moved while not firing = a physical mouse
+                                    if (_capturing && _calib.Count < 50000) _calib.Add(smp);
+                                }
+                        }
                     }
                 }
             }
@@ -141,8 +154,28 @@ public sealed class RawMouse : IRawMouse, IDisposable
         return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
 
-    public void BeginCapture() { lock (_gate) { _dx = 0; _dy = 0; } _capturing = true; }
-    public (long Dx, long Dy) EndCapture() { _capturing = false; lock (_gate) return (_dx, _dy); }
+    public void BeginCapture() { lock (_gate) _calib.Clear(); _capturing = true; }
+
+    public (long Dx, long Dy) EndCapture()
+    {
+        _capturing = false;
+        var phys = PhysicalDevices();
+        lock (_gate)
+        {
+            long dx = 0, dy = 0;
+            foreach (var s in _calib) if (phys.Count == 0 || phys.Contains(s.Dev)) { dx += s.Dx; dy += s.Dy; }
+            return (dx, dy);
+        }
+    }
+
+    public void BeginBurst() { lock (_gate) _burst.Clear(); _inBurst = true; }
+    public List<RawSample> EndBurst() { _inBurst = false; lock (_gate) return new List<RawSample>(_burst); }
+
+    /// <summary>Devices that moved at least 300 counts while you were not firing: your real mouse.</summary>
+    public HashSet<long> PhysicalDevices()
+    {
+        lock (_gate) return _idle.Where(k => k.Value >= 300).Select(k => k.Key).ToHashSet();
+    }
 
     public void Dispose()
     {

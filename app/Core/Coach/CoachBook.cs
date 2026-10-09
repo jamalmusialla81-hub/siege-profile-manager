@@ -47,7 +47,7 @@ public static class CoachMath
 
     /// <summary>Turns the pictures taken during one spray into the per-phase error. Null + reason when it cannot be judged.</summary>
     public static SprayResult? Analyze(IReadOnlyList<(long TimeMs, Prof? P)> frames, BurstInfo burst, Pulls pulls, GameSettings g,
-        double pxPerCountY, double pxPerCountX, out string why)
+        double pxPerCountY, double pxPerCountX, out string why, IReadOnlyList<RawSample>? hand = null, int minClear = 2)
     {
         why = "";
         int n = frames.Count;
@@ -62,14 +62,21 @@ public static class CoachMath
         {
             var m = ImageShift.Measure(frames[i].P, frames[i + 1].P, out var w);
             if (m == null) { last = w; continue; }
+            // your own mouse moved the view too: remove it (mouse down = view down = picture UP; mouse right = picture LEFT)
+            double hx = 0, hy = 0;
+            if (hand != null)
+                foreach (var h in hand)
+                    if (h.T >= frames[i].TimeMs && h.T < frames[i + 1].TimeMs) { hx += h.Dx; hy += h.Dy; }
+            double dyAdj = m.Dy == null ? 0 : m.Dy.Value + hy * pxPerCountY;
+            double dxAdj = m.Dx == null ? 0 : m.Dx.Value + hx * pxPerCountX;
             double dt = frames[i + 1].TimeMs - frames[i].TimeMs;
             double mid = (frames[i].TimeMs + frames[i + 1].TimeMs) / 2.0 - t0;
             int ph = mid < pulls.T1 ? 0 : mid < pulls.T2 ? 1 : 2;
             double tk = dt * tpm;
-            if (m.Dy != null) { sumY[ph] += m.Dy.Value; tkY[ph] += tk; used++; }         // picture moved DOWN = view ended ABOVE = too little pull
-            if (m.Dx != null) { sumX += -m.Dx.Value; tkX += tk; }                          // picture moved LEFT = view drifted RIGHT
+            if (m.Dy != null) { sumY[ph] += dyAdj; tkY[ph] += tk; used++; }         // picture moved DOWN = view ended ABOVE = too little pull
+            if (m.Dx != null) { sumX += -dxAdj; tkX += tk; }                          // picture moved LEFT = view drifted RIGHT
         }
-        if (used < 2) { why = $"too few clear pictures in that spray ({used} of {n - 1})" + (last != "" ? ", last: " + last : ""); return null; }
+        if (used < minClear) { why = $"too few clear pictures in that spray ({used} of {n - 1})" + (last != "" ? ", last: " + last : ""); return null; }
         var pull = new[] { pulls.A, pulls.B, pulls.C };
         var res = new double[3];
         for (int ph = 0; ph < 3; ph++)
@@ -115,7 +122,7 @@ public static class CoachBook
     }
 
     /// <summary>Adds one spray. Returns a new learned profile when this spray completed a round, else null. msg = what happened.</summary>
-    public static LearnedProfile? Record(AppConfig c, SprayResult r, out string msg)
+    public static LearnedProfile? Record(AppConfig c, SprayResult r, out string msg, int needed = Needed, double eta = Eta)
     {
         msg = "";
         var e = Entry(c, r.Key);
@@ -131,7 +138,7 @@ public static class CoachBook
         e.Updated = DateTime.Now.ToString("MM-dd HH:mm");
         e.Acc.Add((int)Math.Round(r.Accuracy));
         while (e.Acc.Count > 60) e.Acc.RemoveAt(0);
-        if (e.N < Needed) { msg = $"{e.N} of {Needed} sprays collected for this profile"; return null; }
+        if (e.N < needed) { msg = $"{e.N} of {needed} sprays collected for this profile"; return null; }
 
         // LOCKED: under 4% error in every phase and tiny sideways drift = accurate, stop chasing noise
         double rel = Math.Max(Math.Abs(e.A / e.N) / Math.Max(e.Pa, 0.5), Math.Max(Math.Abs(e.B / e.N) / Math.Max(e.Pb, 0.5), Math.Abs(e.C / e.N) / Math.Max(e.Pc, 0.5)));
@@ -142,10 +149,10 @@ public static class CoachBook
             return null;
         }
         e.Locked = false;
-        double a2 = Bound(e.Pa + Eta * e.A / e.N, e.BaseA);
-        double b2 = Bound(e.Pb + Eta * e.B / e.N, e.BaseB);
-        double c2 = Bound(e.Pc + Eta * e.C / e.N, e.BaseC);
-        double x2 = CoachMath.Clamp(e.Px + Eta * e.X / e.N, e.BaseX - 4, e.BaseX + 4);
+        double a2 = Bound(e.Pa + eta * e.A / e.N, e.BaseA);
+        double b2 = Bound(e.Pb + eta * e.B / e.N, e.BaseB);
+        double c2 = Bound(e.Pc + eta * e.C / e.N, e.BaseC);
+        double x2 = CoachMath.Clamp(e.Px + eta * e.X / e.N, e.BaseX - 4, e.BaseX + 4);
         var p = new LearnedProfile
         {
             R = Math.Round(a2, 3), Y1 = Math.Round(b2 - a2, 3), Y2 = Math.Round(c2 - b2, 3),

@@ -45,6 +45,7 @@ public partial class App : Application
                 Grab = ScreenCapture.Grab,
                 Allowed = Hooks.SiegeActive,
                 Raw = Raw,
+                Keys = Hooks,
             };
             _main = new MainWindow(this);
             _hud = new HudWindow(this);

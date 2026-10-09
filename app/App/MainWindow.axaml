@@ -99,6 +99,8 @@
                 <TextBlock Name="TrainText" VerticalAlignment="Center" Foreground="#E9EDF3" />
               </StackPanel>
               <TextBlock Name="CoachStatus" Classes="dim" FontSize="12" TextWrapping="Wrap" />
+              <CheckBox Name="MatchChk" Content="Also learn during matches (careful mode)" Margin="0,6,0,0" />
+              <TextBlock Classes="dim" FontSize="11" TextWrapping="Wrap" Text="In a match the coach only uses sprays of half a second or more where you were standing still (no W A S D, crouch, lean or jump), subtracts your own mouse movement, skips any picture it cannot match clearly, and needs 5 sprays on the same profile before it changes anything (the range needs 3). Needs the pixels-per-count calibration for the best accuracy." />
             </StackPanel>
           </Border>
           <Border Classes="card">

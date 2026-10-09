@@ -54,7 +54,7 @@ public partial class HudWindow : Window
         C<TextBlock>("Dot").Foreground = new SolidColorBrush(Color.Parse(st == LinkStatus.Connected || st == LinkStatus.Idle ? "#4ADE9C" : st == LinkStatus.Waiting ? "#F2B84B" : "#F07178"));
         C<TextBlock>("Status").Text = _app.Sync.StateText();
         var coach = C<TextBlock>("CoachLine");
-        bool show = _app.Coach.Training || _app.Coach.Calibrating;
+        bool show = _app.Coach.Training || _app.Coach.Calibrating;   // match learning stays quiet: no HUD clutter while you play
         coach.IsVisible = show;
         if (show) coach.Text = (_app.Coach.Calibrating ? "CALIBRATING: " : "TRAINING: ") + (_app.Coach.Calibrating ? _app.Coach.Status : _app.Coach.Last);
     }
