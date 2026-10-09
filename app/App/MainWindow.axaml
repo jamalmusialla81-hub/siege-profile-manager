@@ -107,12 +107,14 @@
           <Border Classes="card">
             <StackPanel Spacing="8">
               <TextBlock Text="SCREEN SCALE  (pixels the view moves per mouse count)" Classes="h" />
-              <TextBlock Name="PxText" Foreground="#E9EDF3" />
+              <TextBlock Name="PxText" Foreground="#E9EDF3" TextWrapping="Wrap" />
+              <TextBlock Name="CalWarn" Foreground="#F2B84B" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="False" Text="⚠ Match learning is waiting for this calibration. Until you do it, the coach ignores your match sprays." />
               <StackPanel Orientation="Horizontal" Spacing="10">
-                <Button Name="CalBeginBtn" Classes="sec" Content="1. Start  (F11)" />
-                <Button Name="CalFinishBtn" Classes="sec" Content="2. Finish  (F10)" />
+                <Button Name="CalGuidedBtn" Classes="primary" Content="Calibrate now  (6 s countdown)" />
+                <Button Name="CalBeginBtn" Classes="sec" Content="Manual: Start  (F11)" />
+                <Button Name="CalFinishBtn" Classes="sec" Content="Finish  (F10)" />
               </StackPanel>
-              <TextBlock Text="Press Start in the game, aim at a textured wall holding aim, move your mouse slowly down 1-2 cm, then press Finish. It only reads your mouse, it never moves it." Classes="dim" FontSize="11" TextWrapping="Wrap" />
+              <TextBlock Text="Press Calibrate now: this window hides, a countdown shows on the HUD. Switch to Siege, aim at a textured wall holding aim, then move your mouse slowly down 1-2 cm when it says MOVE. It measures by itself. It only reads your mouse, it never moves it." Classes="dim" FontSize="11" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
           <Border Classes="card">

@@ -63,7 +63,7 @@ public partial class App : Application
             Hooks.ToggleHud += () => { Store.Config.HudVisible = !Store.Config.HudVisible; Store.Touch(); ApplyHud(); };
             Hooks.SlotChanged += () => _hud.Refresh();
             Hooks.ToggleTraining += () => Coach.SetTraining(!Coach.Training);
-            Hooks.CalBegin += () => { var m = Coach.BeginCalibration(); if (m != "") Live.AddLog("calibration: " + m); };
+            Hooks.CalBegin += () => { var m = Coach.BeginCalibration(); Live.AddLog("calibration: " + (m == "" ? "started" : m)); };
             Hooks.CalFinish += () => Coach.FinishCalibration();
             Hooks.Start();
 

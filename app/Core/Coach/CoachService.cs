@@ -57,6 +57,14 @@ public sealed class CoachService
     public int Skipped { get; private set; }
     public event Action? Changed;
 
+    /// <summary>A short message for the HUD (calibration prompts, results). Shown for 10 seconds.</summary>
+    public string Notice { get; private set; } = "";
+    DateTime _noticeAt = DateTime.MinValue;
+    public bool NoticeActive => Notice != "" && (DateTime.UtcNow - _noticeAt).TotalSeconds < 10;
+    public bool NeedsCalibration => InMatch && !Calibrated;
+    public bool GuidedRunning { get; private set; }
+    void SetNotice(string text) { Notice = text; _noticeAt = DateTime.UtcNow; Changed?.Invoke(); }
+
     public CoachService(ConfigStore store, LiveState live)
     {
         _store = store; _live = live;
@@ -186,6 +194,7 @@ public sealed class CoachService
     void Skip(string why)
     {
         Skipped++;
+        if (Matching && !Calibrated) return;                 // one clear banner on the Coach page instead of a message per spray
         Last = "skipped: " + why;
         Status = Last;
         Changed?.Invoke();
@@ -222,6 +231,40 @@ public sealed class CoachService
         Status = "Calibrating: aim at a textured wall, hold aim, move the mouse slowly down 1-2 cm, then press the finish key (F10)";
         Changed?.Invoke();
         return "";
+    }
+
+    /// <summary>
+    /// One button: a countdown (go to the game, aim at a textured wall holding aim), then 6 seconds in which you move the mouse
+    /// slowly down 1-2 cm, then it measures by itself. Prompts go to the HUD.
+    /// </summary>
+    public void CalibrateGuided(Action? hideWindow = null)
+    {
+        if (GuidedRunning || Calibrating) return;
+        GuidedRunning = true;
+        hideWindow?.Invoke();
+        Task.Run(async () =>
+        {
+            try
+            {
+                for (int i = 6; i >= 1; i--)
+                {
+                    Post(() => SetNotice($"CALIBRATION in {i}: switch to Siege, aim at a textured wall and hold aim"));
+                    await Task.Delay(1000);
+                }
+                string err = "";
+                Post(() => err = BeginCalibration());
+                await Task.Delay(250);
+                if (!Calibrating) { Post(() => SetNotice("CALIBRATION failed: " + (err != "" ? err : "could not start (is Siege in front?)"))); return; }
+                for (int i = 6; i >= 1; i--)
+                {
+                    Post(() => SetNotice($"MOVE the mouse slowly DOWN 1-2 cm  ({i})"));
+                    await Task.Delay(1000);
+                }
+                string res = "";
+                Post(() => { res = FinishCalibration(); SetNotice(res); });
+            }
+            finally { Post(() => { GuidedRunning = false; Changed?.Invoke(); }); }
+        });
     }
 
     public string FinishCalibration()

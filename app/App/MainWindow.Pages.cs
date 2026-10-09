@@ -12,12 +12,13 @@ public partial class MainWindow
     readonly Dictionary<string, Button> _tiles = new();
     List<string> _coachKeys = new();
     const string Auto = "AUTO";
+    string _opSig = "";
 
     void InitPages()
     {
         C<Button>("SideAtk").Click += (_, _) => { _opSide = "attackers"; BuildGrid(); };
         C<Button>("SideDef").Click += (_, _) => { _opSide = "defenders"; BuildGrid(); };
-        C<CheckBox>("FavChk").IsCheckedChanged += (_, _) => { if (!_loading && _opSel != "") _app.Sync.SetFavourite(_opSel, C<CheckBox>("FavChk").IsChecked == true); };
+        C<CheckBox>("FavChk").IsCheckedChanged += (_, _) => { if (!_loading && _opSel != "") { _app.Sync.SetFavourite(_opSel, C<CheckBox>("FavChk").IsChecked == true); _opSig = ""; } };
         C<Button>("StartOpBtn").Click += (_, _) =>
         {
             if (_opSel == "") return;
@@ -31,6 +32,7 @@ public partial class MainWindow
         }
         C<CheckBox>("MatchChk").IsCheckedChanged += (_, _) => { if (!_loading) _app.Coach.InMatch = C<CheckBox>("MatchChk").IsChecked == true; };
         C<Button>("TrainBtn").Click += (_, _) => _app.Coach.SetTraining(!_app.Coach.Training);
+        C<Button>("CalGuidedBtn").Click += (_, _) => _app.Coach.CalibrateGuided(() => Hide());
         C<Button>("CalBeginBtn").Click += (_, _) => C<TextBlock>("CoachStatus").Text = _app.Coach.BeginCalibration() is { Length: > 0 } m ? "⚠ " + m : _app.Coach.Status;
         C<Button>("CalFinishBtn").Click += (_, _) => _app.Coach.FinishCalibration();
         C<Button>("ForgetBtn").Click += (_, _) =>
@@ -59,14 +61,14 @@ public partial class MainWindow
                 {
                     string n = name;
                     b.Content = n;
-                    b.Click += (_, _) => { _opSel = n; RefreshOps(); };
+                    b.Click += (_, _) => { _opSel = n; _opSig = ""; RefreshOps(true); };
                     _tiles[n] = b;
                 }
                 grid.Children.Add(b);
             }
         (C<Button>("SideAtk")).Classes.Set("on", _opSide == "attackers");
         (C<Button>("SideDef")).Classes.Set("on", _opSide == "defenders");
-        RefreshOps();
+        RefreshOps(true);
     }
 
     static string Pretty(string v) => v == "" ? Auto : v;
@@ -108,28 +110,37 @@ public partial class MainWindow
         foreach (var n in new[] { scBox, baBox, grBox }) C<ComboBox>(n).IsEnabled = true;
     }
 
-    public void RefreshOps()
+    /// <summary>force = rebuild the dropdowns (you picked something). The timer calls it without force and only repaints the tiles:
+    /// rebuilding the dropdowns twice a second used to close them and reset your choice.</summary>
+    public void RefreshOps(bool force = false)
     {
         var live = Operators.Find(_app.Live.Get("operator"));
         var favs = _app.Store.Config.Favorites;
         foreach (var (name, b) in _tiles)
         {
-            b.Content = (favs.Contains(name) ? "★ " : "") + name;
+            string text = (favs.Contains(name) ? "★ " : "") + name;
+            if ((string?)b.Content != text) b.Content = text;
             b.Classes.Set("on", name == _opSel);
             b.Classes.Set("live", name == live);
         }
         var op = _opSel != "" ? GameData.Operator(_opSel) : null;
         C<TextBlock>("OpName").Text = op?.Name.ToUpperInvariant() ?? "Pick an operator";
         if (op == null) return;
+        var lo = CurrentLoadout(op);
+        string sig = op.Name + "|" + favs.Contains(op.Name) + "|" + Describe(lo.Primary) + "|" + Describe(lo.Secondary);
+        bool open = new[] { "PrimBox", "PScopeBox", "PBarrelBox", "PGripBox", "SecBox", "SScopeBox", "SBarrelBox", "SGripBox" }.Any(n => C<ComboBox>(n).IsDropDownOpen);
+        if (open || (!force && sig == _opSig)) return;
+        _opSig = sig;
         _loading = true;
         C<CheckBox>("FavChk").IsChecked = favs.Contains(op.Name);
-        var lo = CurrentLoadout(op);
         FillSlot("primary", op, lo.Primary, "PrimBox", "PScopeBox", "PBarrelBox", "PGripBox");
         FillSlot("secondary", op, lo.Secondary, "SecBox", "SScopeBox", "SBarrelBox", "SGripBox");
         _loading = false;
         if (C<TextBlock>("OpsNote").Text is null or "")
-            C<TextBlock>("OpsNote").Text = "Changes are saved at once and reach G HUB when you paste the script. Switching the live operator in game still uses RSHIFT + click or your keys: G HUB lets the script react only to your real mouse.";
+            C<TextBlock>("OpsNote").Text = "Changes are saved at once and sent to G HUB live. Switching the live operator in game still uses RSHIFT + click or your keys: G HUB lets the script react only to your real mouse.";
     }
+
+    static string Describe(Slot? s) => s == null ? "-" : $"{s.Weapon}/{s.Scope}/{s.Barrel}/{s.Grip}";
 
     void OnLoadoutPick(string box)
     {
@@ -149,8 +160,9 @@ public partial class MainWindow
         }
         if (prim) lo.Primary = slot; else lo.Secondary = slot;
         _app.Sync.EditLoadout(op.Name, lo);
-        C<TextBlock>("OpsNote").Text = "Saved. Paste the script into G HUB to apply it.";
-        RefreshOps();
+        C<TextBlock>("OpsNote").Text = _app.Live.Get("live") == "ok" ? "Saved. G HUB picks it up on your next shot or key press." : "Saved. Paste the script into G HUB to apply it.";
+        _opSig = "";
+        RefreshOps(true);
     }
 
     // ---- coach -------------------------------------------------------------------------------------------
@@ -164,6 +176,8 @@ public partial class MainWindow
         C<TextBlock>("PxText").Text = co.Calibrated
             ? $"vertical {cfg.Coach.PxY:0.000} px per count   ·   horizontal {cfg.Coach.PxX:0.000}   (calibrated)"
             : "not calibrated: assuming 0.40 px per count. Calibrating makes the corrections accurate.";
+        C<TextBlock>("CalWarn").IsVisible = co.NeedsCalibration;
+        C<Button>("CalGuidedBtn").IsEnabled = !co.GuidedRunning;
         C<TextBlock>("LastText").Text = co.Last;
         var r = co.LastResult;
         C<TextBlock>("AccText").Text = r == null ? "--" : $"{r.Accuracy:0}%";
